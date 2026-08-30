@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Finanzas E&L — Gestión Mensual</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root{--cream:#efeae0;--card:#fbf9f3;--green:#17493a;--green-2:#0f3527;--ink:#1c2621;--sub:#6c756f;--line:#e3ded1;--soft:#e6efe8;--g:'Hanken Grotesk',ui-sans-serif,system-ui,sans-serif;--serif:'Instrument Serif',Georgia,serif}
+    body{margin:0;font-family:var(--g);background:#c9e6f6;color:var(--ink);-webkit-font-smoothing:antialiased}
+    input,select,textarea,button{font-family:var(--g)}
+    .acc{font-family:var(--serif);font-style:italic;font-weight:400;letter-spacing:0}
+    @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
+    .pulse-dot{animation:pulse-dot 2s ease-in-out infinite}
+    .grip{cursor:grab;touch-action:none}.grip:active{cursor:grabbing}
+    .sortable-ghost{opacity:.3;background:#e6e0d2;border-radius:10px}
+    .popover-overlay{position:fixed;inset:0;z-index:40}
+    /* --- tema Origin: superficies --- */
+    .bg-white{background:var(--card)!important}
+    .bg-white\/80{background:rgba(251,249,243,.85)!important}
+    .bg-slate-50{background:#f1ece2!important}
+    .bg-slate-100{background:#ece6da!important}
+    .border-slate-200{border-color:var(--line)!important}
+    .border-slate-100{border-color:var(--line)!important}
+    .text-slate-800{color:var(--ink)!important}
+    .text-slate-700{color:#3a423c!important}
+    .text-slate-600{color:#565f58!important}
+    .text-slate-500{color:var(--sub)!important}
+    .text-slate-400{color:#9b968c!important}
+    .shadow-sm{box-shadow:0 1px 2px rgba(28,38,33,.05)!important}
+    /* --- acento azul -> verde --- */
+    .bg-blue-600{background:var(--green)!important}
+    .hover\:bg-blue-700:hover{background:var(--green-2)!important}
+    .bg-blue-50{background:var(--soft)!important}
+    .text-blue-600,.text-blue-500,.text-blue-700{color:var(--green)!important}
+    .hover\:text-blue-700:hover{color:var(--green-2)!important}
+    .border-blue-300,.border-blue-400{border-color:var(--green)!important}
+    .focus\:border-blue-400:focus{border-color:var(--green)!important}
+    /* --- esquinas más suaves --- */
+    .rounded-xl{border-radius:16px!important}
+    .rounded-lg{border-radius:11px!important}
+    .origin-card{transition:transform .22s cubic-bezier(.22,1,.36,1),box-shadow .22s}
+    .origin-card:hover{transform:translateY(-2px);box-shadow:0 16px 34px -20px rgba(20,50,40,.5)!important}
+    /* texto legible sobre tarjetas verdes (contenedor .text-white) */
+    .text-white .text-slate-800{color:#fff!important}
+    .text-white .text-slate-700{color:#eae7df!important}
+    .text-white .text-slate-500,.text-white .text-slate-400{color:#a9c8bb!important}
+    .st-acc{color:var(--green)}
+    .text-white .st-acc{color:#b7d84a!important}
+    button.bg-blue-600,button.bg-slate-100,button.bg-red-50{border-radius:999px!important}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-type="module">
+const{useState,useEffect,useCallback,useMemo,useRef}=React;
+
+const SUPABASE_URL="https://hizmowdizarryobqdmya.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhpem1vd2RpemFycnlvYnFkbXlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4MTA3NzIsImV4cCI6MjA5MzM4Njc3Mn0.avGU7Jp4GKvagEUqORnKhnSFEP-c8KrIIo4_i3cpZMU";
+const TABLE_NAME="periods";
+const BUCKET="monthly-files";
+const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+const I={
+  piggyBank:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2"/><path d="M2 9v1c0 1.1.9 2 2 2h1"/><path d="M16 11h.01"/></svg>,
+  dollarSign:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  trendUp:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>,
+  trendDown:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>,
+  creditCard:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+  download:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+  upload:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+  plus:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  trash:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+  chevDown:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="6 9 12 15 18 9"/></svg>,
+  chevUp:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="18 15 12 9 6 15"/></svg>,
+  users:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  wallet:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>,
+  check:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+  xCircle:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
+  refresh:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
+  arrows:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="8 3 4 7 8 11"/><line x1="4" y1="7" x2="20" y2="7"/><polyline points="16 21 20 17 16 13"/><line x1="20" y1="17" x2="4" y2="17"/></svg>,
+  pin:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>,
+  pinOff:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="2" y1="2" x2="22" y2="22"/><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h12"/><path d="M15 9.34V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0-1.4.6"/></svg>,
+  spray:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 3h.01M7 5h.01M11 7h.01M3 7h.01M7 9h.01M3 11h.01"/><rect x="15" y="5" width="4" height="4" rx="1"/><path d="M15 13v6a2 2 0 0 0 2 2 2 2 0 0 0 2-2v-6M15 13h4"/></svg>,
+  note:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M14 3v4a2 2 0 0 0 2 2h4"/></svg>,
+  cloud:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>,
+  cloudOff:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/></svg>,
+  grip:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="none" {...p}><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>,
+  extLink:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
+  dots:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="none" {...p}><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>,
+  zap:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+  file:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
+  banknote:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>,
+  vault:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="12" cy="12" r="4"/><path d="M12 8v8M8 12h8"/></svg>,
+  x:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  image:(p)=><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>,
+};
+
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);
+const fmt=(n)=>new Intl.NumberFormat("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0);
+const fmtUSD=(n)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2}).format(n||0);
+const fmtARS=(n)=>`$ ${fmt(n)}`;
+const toNum=(v)=>{const n=parseFloat(String(v).replace(/,/g,"."));return isNaN(n)?0:n};
+const parseAR=(v)=>{const s=String(v).replace(/\./g,"").replace(/,/g,".").replace(/[^0-9.\-]/g,"");const n=parseFloat(s);return isNaN(n)?0:n};
+const fmtInput=(n)=>new Intl.NumberFormat("es-AR",{maximumFractionDigits:2}).format(n||0);
+const formatLive=(str)=>{let s=String(str).replace(/[^0-9,]/g,"");const i=s.indexOf(",");const intp=(i>=0?s.slice(0,i):s).replace(/,/g,"");const dec=i>=0?s.slice(i+1).replace(/,/g,"").slice(0,2):null;const intFmt=intp===""?"":Number(intp).toLocaleString("es-AR",{maximumFractionDigits:0});if(dec!==null)return (intFmt||"0")+","+dec;return intFmt;};
+const reorder=(arr,from,to)=>{const r=[...arr];const[m]=r.splice(from,1);r.splice(to,0,m);return r};
+const gcalDueUrl=(card,authuser,src)=>{if(!card.dueDate)return"#";const s=card.dueDate.replaceAll("-","");const e=new Date(card.dueDate+"T00:00:00");e.setDate(e.getDate()+1);const es=`${e.getFullYear()}${String(e.getMonth()+1).padStart(2,"0")}${String(e.getDate()).padStart(2,"0")}`;const p=new URLSearchParams({action:"TEMPLATE",text:`💳 Vence ${card.name||"tarjeta"}`,dates:`${s}/${es}`,details:`Total resumen: $ ${fmt(card.totalResumen||0)}`});if(src&&String(src).trim())p.set("src",String(src).trim());const raw=(authuser==null||authuser==="")?"0":String(authuser).trim();if(/^\d+$/.test(raw)){return`https://calendar.google.com/calendar/u/${raw}/render?${p.toString()}`;}p.set("authuser",raw);return`https://calendar.google.com/calendar/render?${p.toString()}`};
+
+const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const LOCAL_KEY="gestion_financiera_ev_lau_cache";
+const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
+
+const emptyPeriod=()=>({
+  dollarRate:0,
+  sectionOrder:[...DEFAULT_SECTIONS],
+  incomes:[
+    {id:uid(),person:"Evelyn",description:"",amount:0,persist:true},
+    {id:uid(),person:"Lautaro",description:"",amount:0,persist:true},
+  ],
+  expenses:[{id:uid(),description:"",amount:0,counted:true,persist:true,link:"",receiptNumber:"",paymentStatus:0}],
+  cards:[{id:uid(),name:"Tarjeta 1",totalResumen:0,paid:false,persist:true,deductions:[{id:uid(),responsible:"",amount:0,persist:true}]}],
+  allowanceEvelyn:{total:0,deductions:[{id:uid(),description:"",amount:0}]},
+  allowanceLautaro:{total:0,deductions:[{id:uid(),description:"",amount:0}]},
+  cleaning:{agreement:"",weeks:[
+    {id:uid(),label:"Semana 1",pay:0,transport:0,persist:true},{id:uid(),label:"Semana 2",pay:0,transport:0,persist:true},
+    {id:uid(),label:"Semana 3",pay:0,transport:0,persist:true},{id:uid(),label:"Semana 4",pay:0,transport:0,persist:true},
+  ]},
+  savings:{accounts:[{id:uid(),name:"",amountARS:0,amountUSD:0,persist:true}]},
+  cashBudget:{amountARS:0,note:""},
+  reimbursements:[],
+  bankBalances:[],
+  notes:[{id:uid(),title:"",content:"",persist:true}],
+  files:[],
+});
+
+const templateFromPeriod=(src)=>{
+  if(!src)return emptyPeriod();
+  return{
+    dollarRate:0,
+    sectionOrder:src.sectionOrder||[...DEFAULT_SECTIONS],
+    incomes:src.incomes.filter(i=>i.persist!==false).map(i=>({...i,id:uid(),amount:0})),
+    expenses:src.expenses.filter(e=>e.persist!==false).map(e=>({...e,id:uid(),amount:0,link:e.link||"",receiptNumber:"",paymentStatus:0})),
+    cards:src.cards.filter(c=>c.persist!==false).map(c=>({...c,id:uid(),totalResumen:0,paid:false,paidAt:null,commissionStatus:"pending",commissionBonified:false,commissionBonusARS:0,commissionBonifiedAt:null,dueDate:"",files:[],deductions:c.deductions.filter(d=>d.persist!==false).map(d=>({...d,id:uid(),amount:0}))})),
+    allowanceEvelyn:{total:0,deductions:(src.allowanceEvelyn?.deductions||[]).map(d=>({...d,id:uid(),amount:0}))},
+    allowanceLautaro:{total:0,deductions:(src.allowanceLautaro?.deductions||[]).map(d=>({...d,id:uid(),amount:0}))},
+    cleaning:{agreement:src.cleaning?.agreement||"",weeks:(src.cleaning?.weeks||[]).filter(w=>w.persist!==false).map(w=>({...w,id:uid(),paid:false}))},
+    savings:{accounts:(src.savings?.accounts||[]).filter(a=>a.persist!==false).map(a=>({...a,id:uid()}))},
+    cashBudget:{amountARS:0,note:src.cashBudget?.note||""},
+    reimbursements:(src.reimbursements||[]).filter(r=>r.persist).map(r=>({...r,id:uid(),amount:0,status:"pending",receivedAt:null})),
+    bankBalances:(src.bankBalances||[]).filter(b=>b.persist!==false).map(b=>({...b,id:uid(),amountARS:0,amountUSD:0})),
+    notes:(src.notes||[]).filter(n=>n.persist!==false).map(n=>({...n,id:uid(),content:n.persist!==false?n.content:""})),
+    files:[],
+  };
+};
+
+const findSource=(all,key)=>{const ks=Object.keys(all).sort();if(!ks.length)return null;const b=ks.filter(k=>k<key);return b.length?all[b[b.length-1]]:all[ks[ks.length-1]]};
+
+function useSupabaseState(){
+  const[allData,setRaw]=useState(()=>{try{const r=localStorage.getItem(LOCAL_KEY);return r?JSON.parse(r):{}}catch(e){return{}}});
+  const[syncStatus,setSS]=useState("connecting");
+  const skip=useRef({});const timers=useRef({});const lastEdit=useRef({});
+  const setAllData=useCallback(fn=>{setRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem(LOCAL_KEY,JSON.stringify(next))}catch(e){}return next})},[]);
+  useEffect(()=>{let c=false;(async()=>{try{const{data,error}=await supabase.from(TABLE_NAME).select("id,data");if(error)throw error;if(c)return;if(data&&data.length>0){const m={};data.forEach(r=>{m[r.id]=r.data});setAllData(m)}setSS("synced")}catch(e){if(!c)setSS("offline")}})();return()=>{c=true}},[]);
+  useEffect(()=>{const ch=supabase.channel("p-rt").on("postgres_changes",{event:"*",schema:"public",table:TABLE_NAME},p=>{const k=p.new?.id||p.old?.id;if(!k)return;if(skip.current[k]){delete skip.current[k];return}if(p.eventType==="DELETE"){setAllData(prev=>{const n={...prev};delete n[k];return n})}else{if(lastEdit.current[k]&&(Date.now()-lastEdit.current[k])<2500)return;setAllData(prev=>({...prev,[k]:p.new.data}))}setSS("synced")}).subscribe(s=>{if(s==="SUBSCRIBED")setSS("synced");if(s==="CHANNEL_ERROR")setSS("error")});return()=>{supabase.removeChannel(ch)}},[]);
+  const writePeriod=useCallback((pk,pd)=>{lastEdit.current[pk]=Date.now();if(timers.current[pk])clearTimeout(timers.current[pk]);timers.current[pk]=setTimeout(async()=>{try{skip.current[pk]=true;const{error}=await supabase.from(TABLE_NAME).upsert({id:pk,data:pd,updated_at:new Date().toISOString()},{onConflict:"id"});if(error)throw error;setSS("synced")}catch(e){delete skip.current[pk];setSS("offline")}},500)},[]);
+  return[allData,setAllData,writePeriod,syncStatus];
+}
+
+function useSortable(ref,deps,onReorder,handle=".grip"){
+  useEffect(()=>{if(!ref.current)return;const s=new Sortable(ref.current,{handle,animation:150,ghostClass:"sortable-ghost",onEnd(evt){if(evt.oldIndex===evt.newIndex)return;const{from,item,oldIndex}=evt;from.removeChild(item);from.insertBefore(item,from.children[oldIndex]||null);onReorder(evt.oldIndex,evt.newIndex)}});return()=>s.destroy()},[deps]);
+}
+
+const Card=({children,className="",style})=><div style={style} className={`bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-5 ${className}`}>{children}</div>;
+const ST=({icon:Fn,title,sub})=>{const w=String(title).split(" ");const last=w.pop();const head=w.join(" ");return <div className="flex items-center gap-2 mb-3"><div className="p-1.5 bg-blue-50 rounded-lg">{Fn({className:"w-4 h-4 text-blue-600"})}</div><div><h3 className="text-slate-800" style={{fontSize:"15px",fontWeight:600,letterSpacing:"-.01em"}}>{head?head+" ":""}<span className="acc st-acc">{last}</span></h3>{sub&&<p className="text-xs text-slate-400">{sub}</p>}</div></div>;};
+const NI=({value,onChange,prefix="$",className="",placeholder="0.00"})=>{const ref=useRef(null);const caret=useRef(null);const[foc,setFoc]=useState(false);const[raw,setRaw]=useState("");useEffect(()=>{if(foc&&caret.current!=null&&ref.current){ref.current.setSelectionRange(caret.current,caret.current);caret.current=null;}});const disp=foc?raw:(value===0?"":fmtInput(value));const onCh=(e)=>{const el=e.target;const before=el.value.slice(0,el.selectionStart).replace(/[^0-9]/g,"").length;const f=formatLive(el.value);let p=0,c=0;while(p<f.length&&c<before){if(f[p]>="0"&&f[p]<="9")c++;p++;}caret.current=p;setRaw(f);onChange(parseAR(el.value));};return <div className={`relative ${className}`}>{prefix&&<span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">{prefix}</span>}<input ref={ref} type="text" inputMode="decimal" placeholder={placeholder} className={`w-full rounded-lg border border-slate-200 bg-slate-50 py-2 text-right text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition ${prefix?"pl-7 pr-3":"px-3"}`} value={disp} onFocus={()=>{setFoc(true);setRaw(value===0?"":fmtInput(value));}} onBlur={()=>setFoc(false)} onChange={onCh}/></div>;};
+const TI=({value,onChange,placeholder="",className="",style})=><input type="text" placeholder={placeholder} style={style} className={`w-full rounded-lg border border-slate-200 bg-slate-50 py-2 px-3 text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition ${className}`} value={value} onChange={e=>onChange(e.target.value)}/>;
+const TA=({value,onChange,placeholder="",className="",bg="bg-slate-50"})=>{const ref=useRef(null);const fit=()=>{const el=ref.current;if(!el)return;el.style.height="auto";el.style.height=(el.scrollHeight+2)+"px";};useEffect(()=>{fit()},[value]);return <textarea ref={ref} rows={1} placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)} onInput={fit} style={{resize:"none",overflow:"hidden",minHeight:"40px"}} className={`w-full rounded-lg border border-slate-200 ${bg} py-2 px-3 text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition ${className}`}/>;};
+const Badge=({children,color="blue"})=>{const c={blue:"bg-blue-50 text-blue-700",green:"bg-emerald-50 text-emerald-700",red:"bg-red-50 text-red-700",amber:"bg-amber-50 text-amber-700",slate:"bg-slate-100 text-slate-600"};return<span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c[color]}`}>{children}</span>};
+const PT=({value,onChange})=><button className={`p-1 rounded-md transition shrink-0 ${value!==false?"text-blue-500 hover:bg-blue-50":"text-slate-300 hover:bg-slate-100"}`} title={value!==false?"Fijo":"Temporal"} onClick={onChange}>{value!==false?I.pin({className:"w-3.5 h-3.5"}):I.pinOff({className:"w-3.5 h-3.5"})}</button>;
+const Grip=()=><div className="grip p-0.5 text-slate-300 hover:text-slate-500 shrink-0">{I.grip({className:"w-4 h-4"})}</div>;
+const PayStatus=({status,onChange})=>{const cfg=[{cls:"text-slate-300 border-slate-200",icon:null,label:"Pendiente"},{cls:"text-emerald-500 border-emerald-300 bg-emerald-50",icon:I.check,label:"Pagado"},{cls:"text-blue-500 border-blue-300 bg-blue-50",icon:I.zap,label:"Débito auto."}];const c=cfg[status]||cfg[0];return<button className={`p-1.5 rounded-lg border transition shrink-0 ${c.cls}`} title={c.label} onClick={onChange}>{c.icon?c.icon({className:"w-4 h-4"}):<div className="w-4 h-4 rounded-full border-2 border-slate-300"/>}</button>};
+const SyncBadge=({status})=>{const c={connecting:{color:"text-amber-500",bg:"bg-amber-500",l:"Conectando..."},synced:{color:"text-emerald-500",bg:"bg-emerald-500",l:"Sincronizado"},offline:{color:"text-slate-400",bg:"bg-slate-400",l:"Offline"},error:{color:"text-red-500",bg:"bg-red-500",l:"Error"}}[status]||{color:"text-slate-400",bg:"bg-slate-400",l:"?"};return<div className={`flex items-center gap-1.5 text-xs ${c.color}`} title={c.l}><div className="relative">{(status==="synced"||status==="connecting"?I.cloud:I.cloudOff)({className:"w-4 h-4"})}<div className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${c.bg} ${status==="connecting"?"pulse-dot":""}`}/></div><span className="hidden sm:inline font-medium">{c.l}</span></div>};
+
+function App(){
+  const now=new Date();
+  const[month,setMonth]=useState(()=>{try{const v=localStorage.getItem("last_month");return v!==null&&v!==""?Number(v):now.getMonth()}catch(e){return now.getMonth()}});
+  const[year,setYear]=useState(()=>{try{const v=localStorage.getItem("last_year");return v!==null&&v!==""?Number(v):now.getFullYear()}catch(e){return now.getFullYear()}});
+  useEffect(()=>{try{localStorage.setItem("last_month",String(month));localStorage.setItem("last_year",String(year))}catch(e){}},[month,year]);
+  const pk=`${year}-${String(month+1).padStart(2,"0")}`;
+  const[allData,setAllData,writePeriod,syncStatus]=useSupabaseState();
+  const[expandedCards,setEC]=useState({});
+  const[showImport,setSI]=useState(false);
+  const[saveFlash,setSF]=useState(false);
+  const[gcalUser,setGcalUser]=useState(()=>{try{return localStorage.getItem("gcal_authuser")||"0"}catch(e){return"0"}});
+  const[gcalSrc,setGcalSrc]=useState(()=>{try{return localStorage.getItem("gcal_src")||""}catch(e){return""}});
+  const[linkPopover,setLP]=useState(null);
+  const[linkInput,setLI]=useState("");
+  const[periodFiles,setPF]=useState([]);
+  const[uploading,setUploading]=useState(false);
+  const[convStatus,setCS]=useState({});
+  const[openMd,setOpenMd]=useState(null);
+  const fileInputRef=useRef(null);
+  const cardFileRefs=useRef({});
+  const bgInputRef=useRef(null);
+  const[bgUploading,setBgUploading]=useState(false);
+  const uploadBg=async(file)=>{if(!file)return;setBgUploading(true);try{const path=`${pk}/__bg__${file.name}`;await supabase.storage.from(BUCKET).upload(path,file,{upsert:true});const url=supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl+"?t="+Date.now();update(d=>{d.bgImage=url;d.bgPath=path;return d});}catch(e){alert("Error al subir el fondo: "+e.message)}setBgUploading(false)};
+  const removeBg=async()=>{try{if(data.bgPath)await supabase.storage.from(BUCKET).remove([data.bgPath])}catch(e){}update(d=>{d.bgImage="";d.bgPath="";return d})};
+
+  const data=useMemo(()=>{if(allData[pk])return allData[pk];const s=findSource(allData,pk);return s?templateFromPeriod(s):emptyPeriod()},[allData,pk]);
+  const update=useCallback(fn=>{setAllData(prev=>{let cur=prev[pk]||(findSource(prev,pk)?templateFromPeriod(findSource(prev,pk)):emptyPeriod());const next=fn(JSON.parse(JSON.stringify(cur)));writePeriod(pk,next);return{...prev,[pk]:next}});setSF(true);setTimeout(()=>setSF(false),800)},[pk,setAllData,writePeriod]);
+
+  const secOrder=(()=>{const base=(data.sectionOrder&&data.sectionOrder.length)?data.sectionOrder:[...DEFAULT_SECTIONS];const missing=DEFAULT_SECTIONS.filter(s=>!base.includes(s));return[...base,...missing]})();
+  const sectionsRef=useRef(null);
+  useSortable(sectionsRef,secOrder.join(","), (from,to)=>update(d=>{const base=(d.sectionOrder&&d.sectionOrder.length)?[...d.sectionOrder]:[...DEFAULT_SECTIONS];const missing=DEFAULT_SECTIONS.filter(s=>!base.includes(s));d.sectionOrder=reorder([...base,...missing],from,to);return d}),".section-grip");
+
+  // Item sortable refs
+  const incRef=useRef(null);const expRef=useRef(null);
+  useSortable(incRef,data.incomes.map(i=>i.id).join(","),(f,t)=>update(d=>{d.incomes=reorder(d.incomes,f,t);return d}));
+  useSortable(expRef,data.expenses.map(e=>e.id).join(","),(f,t)=>update(d=>{d.expenses=reorder(d.expenses,f,t);return d}));
+
+  // Load files for period
+  useEffect(()=>{(async()=>{try{const{data:files}=await supabase.storage.from(BUCKET).list(pk);setPF(files||[])}catch(e){setPF([])}})()},[pk]);
+
+  // Load + subscribe to conversion status (card_statements) for period
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
+      try{
+        const{data:rows}=await supabase.from("card_statements").select("filename,status,markdown,error").eq("period_id",pk);
+        if(cancelled)return;
+        const m={};(rows||[]).forEach(r=>{m[r.filename]={status:r.status,markdown:r.markdown,error:r.error}});
+        setCS(m);
+      }catch(e){}
+    })();
+    const ch=supabase.channel(`cs-${pk}`).on("postgres_changes",{event:"*",schema:"public",table:"card_statements",filter:`period_id=eq.${pk}`},p=>{
+      const row=p.new||p.old;if(!row)return;
+      setCS(prev=>({...prev,[row.filename]:{status:row.status,markdown:row.markdown,error:row.error}}));
+    }).subscribe();
+    return()=>{cancelled=true;supabase.removeChannel(ch)};
+  },[pk]);
+
+  const uploadFile=async(file)=>{setUploading(true);try{const path=`${pk}/${file.name}`;await supabase.storage.from(BUCKET).upload(path,file,{upsert:true});const{data:files}=await supabase.storage.from(BUCKET).list(pk);setPF(files||[]);if(file.type==="application/pdf"){setCS(prev=>({...prev,[file.name]:{status:"processing"}}));supabase.functions.invoke("convert-statement",{body:{bucket:BUCKET,path,period:pk}}).catch(err=>console.error("Conversión falló:",err))}}catch(e){alert("Error al subir: "+e.message)}setUploading(false)};
+  const deleteFile=async(name)=>{await supabase.storage.from(BUCKET).remove([`${pk}/${name}`]);const{data:files}=await supabase.storage.from(BUCKET).list(pk);setPF(files||[])};
+  const fileUrl=(name)=>supabase.storage.from(BUCKET).getPublicUrl(`${pk}/${name}`).data.publicUrl;
+  const uploadCardFile=async(cIdx,file)=>{setUploading(true);try{const path=`${pk}/${file.name}`;await supabase.storage.from(BUCKET).upload(path,file,{upsert:true});const{data:files}=await supabase.storage.from(BUCKET).list(pk);setPF(files||[]);update(d=>{const c=d.cards[cIdx];if(!c.files)c.files=[];if(!c.files.includes(file.name))c.files.push(file.name);return d});if(file.type==="application/pdf"){setCS(prev=>({...prev,[file.name]:{status:"processing"}}));supabase.functions.invoke("convert-statement",{body:{bucket:BUCKET,path,period:pk}}).catch(err=>console.error("Conversión falló:",err))}}catch(e){alert("Error al subir: "+e.message)}setUploading(false)};
+  const deleteCardFile=async(cIdx,name)=>{await supabase.storage.from(BUCKET).remove([`${pk}/${name}`]);const{data:files}=await supabase.storage.from(BUCKET).list(pk);setPF(files||[]);update(d=>{const c=d.cards[cIdx];c.files=(c.files||[]).filter(x=>x!==name);return d})};
+
+  const dr=data.dollarRate||0;const toUSD=a=>dr>0?a/dr:0;
+  const totalInc=data.incomes.reduce((s,i)=>s+(i.amount||0),0);
+  const incEve=data.incomes.filter(i=>i.person==="Evelyn").reduce((s,i)=>s+(i.amount||0),0);
+  const incLau=data.incomes.filter(i=>i.person==="Lautaro").reduce((s,i)=>s+(i.amount||0),0);
+  const totalExpC=data.expenses.filter(e=>e.counted).reduce((s,e)=>s+(e.amount||0),0);
+  const totalExpAll=data.expenses.reduce((s,e)=>s+(e.amount||0),0);
+  const cardSum=data.cards.map(c=>{const td=c.deductions.reduce((s,d)=>s+(d.amount||0),0);return{...c,totalDed:td,realCost:(c.totalResumen||0)-td}});
+  const totalCards=cardSum.reduce((s,c)=>s+c.realCost,0);
+  const cl=data.cleaning||{agreement:"",weeks:[]};
+  const clPay=cl.weeks.reduce((s,w)=>s+(w.pay||0),0);
+  const clTrans=cl.weeks.reduce((s,w)=>s+(w.transport||0),0);
+  const clAll=clPay+clTrans;
+  const cashBudget=(data.cashBudget&&data.cashBudget.amountARS)||0;
+  const totalEgr=totalExpC+totalCards+clAll+cashBudget;
+  const saldo=totalInc-totalEgr;
+  const alEve=data.allowanceEvelyn||{total:0,deductions:[]};
+  const alLau=data.allowanceLautaro||{total:0,deductions:[]};
+  const alEveDed=alEve.deductions.reduce((s,d)=>s+(d.amount||0),0);
+  const alLauDed=alLau.deductions.reduce((s,d)=>s+(d.amount||0),0);
+
+  const exportB=()=>{const d=data||emptyPeriod();const b=new Blob([JSON.stringify({[pk]:d},null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=`backup_${pk}.json`;a.click();URL.revokeObjectURL(u)};
+  const importB=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);const vals=Object.values(p);const imported=vals.length===1?vals[0]:vals[0];writePeriod(pk,imported);setAllData(prev=>({...prev,[pk]:imported}));setSI(false)}catch(er){alert("Archivo inválido")}};r.readAsText(f)};
+  const resetPeriod=async()=>{if(!confirm(`¿Borrar TODOS los datos de ${pk}? Esta acción no se puede deshacer.`))return;try{await supabase.from(TABLE_NAME).delete().eq("id",pk);setAllData(prev=>{const n={...prev};delete n[pk];return n})}catch(e){alert("Error: "+e.message)}};
+  const toggleCard=id=>setEC(p=>({...p,[id]:!p[id]}));
+  const isNew=!allData[pk];
+
+  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
+
+  const renderSection=(key)=>{
+    switch(key){
+
+    case "dollarRate": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.dollarSign} title="Tipo de Cambio" sub={`Dólar de referencia para ${MONTHS[month]} ${year}`}/></div></div><NI value={data.dollarRate} prefix="ARS $" className="max-w-xs" onChange={v=>update(d=>{d.dollarRate=v;return d})}/></Card>;
+
+    case "incomes": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.trendUp} title="Ingresos" sub="Registro por persona"/></div></div>
+      <div className="flex gap-2 mb-3 flex-wrap"><Badge color="green">Evelyn: {fmtARS(incEve)}</Badge><Badge color="blue">Lautaro: {fmtARS(incLau)}</Badge><Badge color="slate">Total: {fmtARS(totalInc)} ≈ {fmtUSD(toUSD(totalInc))}</Badge></div>
+      <div ref={incRef} className="space-y-2">{data.incomes.map((inc,idx)=><div key={inc.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+        <Grip/><PT value={inc.persist} onChange={()=>update(d=>{d.incomes[idx].persist=!d.incomes[idx].persist;return d})}/>
+        <select value={inc.person} className="text-sm border border-slate-200 rounded-lg py-2 px-2 bg-slate-50 w-28 shrink-0" onChange={e=>update(d=>{d.incomes[idx].person=e.target.value;return d})}><option>Evelyn</option><option>Lautaro</option></select>
+        <TI value={inc.description} placeholder="Descripción" className="flex-1 min-w-[100px]" onChange={v=>update(d=>{d.incomes[idx].description=v;return d})}/>
+        <NI value={inc.amount} className="w-28 shrink-0" onChange={v=>update(d=>{d.incomes[idx].amount=v;return d})}/>
+        {dr>0&&<span className="text-xs text-slate-400 w-16 text-right shrink-0">{fmtUSD(toUSD(inc.amount))}</span>}
+        <button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.incomes=d.incomes.filter((_,i)=>i!==idx);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+      </div>)}</div>
+      <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium" onClick={()=>update(d=>{d.incomes.push({id:uid(),person:"Lautaro",description:"",amount:0,persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar ingreso</button></Card>;
+
+    case "expenses": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.trendDown} title="Egresos Fijos / Variables" sub="Marcá solo los que no están incluidos en tarjetas"/></div></div>
+      <div className="flex gap-2 mb-3 flex-wrap"><Badge color="red">Contabilizados: {fmtARS(totalExpC)}</Badge><Badge color="slate">Total: {fmtARS(totalExpAll)}</Badge></div>
+      <div ref={expRef} className="space-y-2">{data.expenses.map((exp,idx)=><div key={exp.id}>
+        <div className="flex items-center gap-1 flex-wrap sm:flex-nowrap">
+          <Grip/><PT value={exp.persist} onChange={()=>update(d=>{d.expenses[idx].persist=!d.expenses[idx].persist;return d})}/>
+          <PayStatus status={exp.paymentStatus||0} onChange={()=>update(d=>{d.expenses[idx].paymentStatus=((d.expenses[idx].paymentStatus||0)+1)%3;return d})}/>
+          <button className={`p-1.5 rounded-lg border transition shrink-0 ${exp.counted?"bg-blue-50 border-blue-300":"bg-slate-50 border-slate-200"}`} title={exp.counted?"Contabilizado":"No contabilizado"} onClick={()=>update(d=>{d.expenses[idx].counted=!d.expenses[idx].counted;return d})}>{exp.counted?I.check({className:"w-4 h-4 text-blue-600"}):I.xCircle({className:"w-4 h-4 text-slate-400"})}</button>
+          {exp.paymentStatus===2&&<select value={exp.cardRef||""} title="Tarjeta del débito automático" className="text-xs border border-slate-200 rounded-lg py-2 px-1 bg-slate-50 shrink-0" style={{width:"6rem"}} onChange={e=>update(d=>{d.expenses[idx].cardRef=e.target.value;return d})}><option value="">Tarjeta…</option>{data.cards.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select>}
+          <TI value={exp.description} placeholder="Descripción" className="flex-1 min-w-[100px]" onChange={v=>update(d=>{d.expenses[idx].description=v;return d})}/>
+          <TI value={exp.receiptNumber||""} placeholder="Nº comp." style={{width:"4.5rem"}} className="shrink-0 !text-xs" onChange={v=>update(d=>{d.expenses[idx].receiptNumber=v;return d})}/>
+          <NI value={exp.amount} className="w-28 shrink-0" onChange={v=>update(d=>{d.expenses[idx].amount=v;return d})}/>
+          {exp.link&&<a href={exp.link} target="_blank" rel="noopener" className="p-1 text-blue-500 hover:bg-blue-50 rounded-lg shrink-0">{I.extLink({className:"w-4 h-4"})}</a>}
+          <div className="relative shrink-0">
+            <button className="p-1 hover:bg-slate-100 rounded-lg" onClick={()=>{setLP(linkPopover===exp.id?null:exp.id);setLI(exp.link||"")}}>{I.dots({className:"w-4 h-4 text-slate-400"})}</button>
+            {linkPopover===exp.id&&<><div className="popover-overlay" onClick={()=>setLP(null)}/><div className="absolute right-0 top-8 z-50 bg-white rounded-lg shadow-lg border border-slate-200 p-3 w-64"><p className="text-xs font-medium text-slate-600 mb-2">Link del servicio</p><div className="flex gap-2"><TI value={linkInput} placeholder="https://..." className="flex-1 !text-xs" onChange={setLI}/><button className="px-2 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700" onClick={()=>{update(d=>{d.expenses[idx].link=linkInput;return d});setLP(null)}}>OK</button></div></div></>}
+          </div>
+          <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={()=>update(d=>{d.expenses=d.expenses.filter((_,i)=>i!==idx);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+        </div>
+      </div>)}</div>
+      <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium" onClick={()=>update(d=>{d.expenses.push({id:uid(),description:"",amount:0,counted:true,persist:true,link:"",receiptNumber:"",paymentStatus:0});return d})}>{I.plus({className:"w-4 h-4"})} Agregar egreso</button></Card>;
+
+    case "cards": return <div key={key} className="space-y-4">
+      <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Grip/><div className="section-grip flex items-center gap-2"><div className="p-1.5 bg-blue-50 rounded-lg">{I.creditCard({className:"w-4 h-4 text-blue-600"})}</div><h3 className="text-slate-800" style={{fontSize:"15px",fontWeight:600,letterSpacing:"-.01em"}}>Tarjetas de <span className="acc st-acc">Crédito</span></h3></div></div>
+        <button className="flex items-center gap-1.5 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{d.cards.push({id:uid(),name:`Tarjeta ${d.cards.length+1}`,totalResumen:0,paid:false,persist:true,deductions:[{id:uid(),responsible:"",amount:0,persist:true}]});return d})}>{I.plus({className:"w-4 h-4"})} Nueva tarjeta</button></div>
+      {cardSum.map((card,cIdx)=>{const exp=expandedCards[card.id]!==false;return<Card key={card.id}>
+        <div className="flex items-center justify-between cursor-pointer" onClick={()=>toggleCard(card.id)}>
+          <div className="flex items-center gap-2 min-w-0 flex-1"><PT value={card.persist} onChange={()=>update(d=>{d.cards[cIdx].persist=!d.cards[cIdx].persist;return d})}/>{I.creditCard({className:"w-4 h-4 text-slate-500 shrink-0"})}<input type="text" value={card.name} className="font-semibold text-sm text-slate-800 bg-transparent border-none outline-none focus:underline min-w-0 flex-1 truncate" placeholder="Nombre" onClick={e=>e.stopPropagation()} onChange={e=>update(d=>{d.cards[cIdx].name=e.target.value;return d})}/><Badge color={card.realCost>0?"red":"green"}><span className="whitespace-nowrap">Real: {fmtARS(card.realCost)}</span></Badge></div>
+          <div className="flex items-center gap-2 shrink-0"><button className={`text-xs px-2 py-1 rounded-lg border transition ${card.paid?"bg-emerald-50 border-emerald-300 text-emerald-600":"bg-slate-50 border-slate-200 text-slate-400"}`} title={card.paid?(card.paidAt?`Pagada ${new Date(card.paidAt).toLocaleDateString("es-AR")}`:"Pagada"):"No pagada"} onClick={e=>{e.stopPropagation();update(d=>{d.cards[cIdx].paid=!d.cards[cIdx].paid;d.cards[cIdx].paidAt=d.cards[cIdx].paid?new Date().toISOString():null;return d})}}>{card.paid?"✓ Pagada":"No pagada"}</button><button className="p-1 hover:bg-red-50 rounded" onClick={e=>{e.stopPropagation();update(d=>{d.cards=d.cards.filter((_,i)=>i!==cIdx);return d})}}>{I.trash({className:"w-3.5 h-3.5 text-red-400"})}</button>{exp?I.chevUp({className:"w-4 h-4 text-slate-400"}):I.chevDown({className:"w-4 h-4 text-slate-400"})}</div></div>
+        {exp&&<div className="mt-4 space-y-4">
+          <div><label className="text-xs font-medium text-slate-500 mb-1 block">Total del Resumen</label><NI value={card.totalResumen} className="max-w-xs" onChange={v=>update(d=>{d.cards[cIdx].totalResumen=v;return d})}/></div>
+          <div className="flex items-center gap-2 flex-wrap">{(()=>{const cst=card.commissionStatus||(card.commissionBonified?"yes":"pending");const cfg={pending:{cls:"bg-amber-50 border-amber-300 text-amber-700",txt:"¿Comisión bonificada?"},yes:{cls:"bg-emerald-50 border-emerald-300 text-emerald-600",txt:"✓ Comisión bonificada"},no:{cls:"bg-red-50 border-red-300 text-red-600",txt:"✗ Comisión NO bonificada"}}[cst];const nxt={pending:"yes",yes:"no",no:"pending"}[cst];return <><button className={`text-xs px-2 py-1 rounded-lg border transition ${cfg.cls}`} title="Tocá para cambiar: sin revisar → bonificada → no bonificada" onClick={()=>update(d=>{const c=d.cards[cIdx];c.commissionStatus=nxt;c.commissionBonified=(nxt==="yes");c.commissionBonifiedAt=nxt==="yes"?new Date().toISOString():null;return d})}>{cfg.txt}</button>{cst==="yes"&&<div className="flex items-center gap-1"><span className="text-xs text-slate-400">Monto</span><NI value={card.commissionBonusARS||0} className="w-28" onChange={v=>update(d=>{d.cards[cIdx].commissionBonusARS=v;return d})}/></div>}</>;})()}</div>
+          <div className="flex items-center gap-2 flex-wrap"><label className="text-xs font-medium text-slate-500">Vencimiento</label><input type="date" value={card.dueDate||""} className="text-sm border border-slate-200 rounded-lg py-1.5 px-2 bg-slate-50 outline-none" onChange={e=>update(d=>{d.cards[cIdx].dueDate=e.target.value;return d})}/>{card.dueDate&&<a href={gcalDueUrl(card,gcalUser,gcalSrc)} target="_blank" rel="noopener" className="flex items-center gap-1 text-xs text-blue-600 hover:underline">{I.extLink({className:"w-3.5 h-3.5"})} Agendar vencimiento</a>}</div>
+          <div><label className="text-xs font-medium text-slate-500 mb-2 block">Deducciones de Terceros <span className="text-slate-400">({fmtARS(card.totalDed)})</span></label>
+            <div className="space-y-2">{data.cards[cIdx].deductions.map((ded,dIdx)=><div key={ded.id} className="flex items-center gap-1.5"><PT value={ded.persist} onChange={()=>update(d=>{d.cards[cIdx].deductions[dIdx].persist=!d.cards[cIdx].deductions[dIdx].persist;return d})}/><TI value={ded.responsible} placeholder="Responsable" className="flex-1" onChange={v=>update(d=>{d.cards[cIdx].deductions[dIdx].responsible=v;return d})}/><NI value={ded.amount} className="w-28 shrink-0" onChange={v=>update(d=>{d.cards[cIdx].deductions[dIdx].amount=v;return d})}/><button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.cards[cIdx].deductions=d.cards[cIdx].deductions.filter((_,i)=>i!==dIdx);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></div>)}</div>
+            <button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{d.cards[cIdx].deductions.push({id:uid(),responsible:"",amount:0,persist:true});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar deducción</button></div>
+          <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1"><div className="flex justify-between"><span className="text-slate-500">Total Resumen</span><span className="font-medium">{fmtARS(card.totalResumen)}</span></div><div className="flex justify-between"><span className="text-slate-500">− Deducciones</span><span className="font-medium text-amber-600">−{fmtARS(card.totalDed)}</span></div><div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-700 font-semibold">= Gasto Real Pareja</span><span className="font-bold text-red-600">{fmtARS(card.realCost)}</span></div></div>
+          <div><label className="text-xs font-medium text-slate-500 mb-1 block">Resumen de la tarjeta</label>
+            <input type="file" style={{display:"none"}} ref={el=>cardFileRefs.current[card.id]=el} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>uploadCardFile(cIdx,f));e.target.value=""}}/>
+            <button className={`mb-2 flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg transition ${uploading?"bg-slate-100 text-slate-400":"bg-blue-600 text-white hover:bg-blue-700"}`} disabled={uploading} onClick={()=>cardFileRefs.current[card.id]&&cardFileRefs.current[card.id].click()}>{I.upload({className:"w-3.5 h-3.5"})} {uploading?"Subiendo...":"Subir resumen"}</button>
+            {(card.files||[]).length>0?<div className="space-y-1">{(card.files||[]).map(fn=>{const cs=convStatus[fn];const meta=periodFiles.find(f=>f.name===fn);return <div key={fn}>
+              <div className="flex items-center gap-2 text-xs py-1 px-2 rounded-lg hover:bg-slate-50">
+                <a href={fileUrl(fn)} target="_blank" rel="noopener" className="flex items-center gap-1.5 flex-1 text-blue-600 hover:underline min-w-0">{I.file({className:"w-3.5 h-3.5 shrink-0"})}<span className="truncate">{fn}</span></a>
+                {meta&&meta.metadata&&meta.metadata.size?<span className="text-slate-400 shrink-0">{(meta.metadata.size/1024).toFixed(0)}KB</span>:null}
+                {cs&&cs.status==="processing"&&<Badge color="amber">Convirtiendo…</Badge>}
+                {cs&&cs.status==="done"&&<button onClick={()=>setOpenMd(openMd===fn?null:fn)}><Badge color="green">{openMd===fn?"Ocultar":"Ver texto"}</Badge></button>}
+                {cs&&cs.status==="error"&&<Badge color="red">Error</Badge>}
+                <button className="p-1 hover:bg-red-50 rounded" onClick={()=>deleteCardFile(cIdx,fn)}>{I.trash({className:"w-3.5 h-3.5 text-red-400"})}</button>
+              </div>
+              {openMd===fn&&cs&&cs.markdown&&<pre className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 mt-1 mb-2 whitespace-pre-wrap max-h-96 overflow-y-auto">{cs.markdown}</pre>}
+            </div>})}</div>:<p className="text-xs text-slate-400">Sin resumen subido a esta tarjeta.</p>}
+          </div>
+        </div>}</Card>})}
+    </div>;
+
+    case "allowanceEvelyn": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.banknote} title="Mensualidad Evelyn" sub="Control de mensualidad y descuentos"/></div></div>
+      <div className="mb-3"><label className="text-xs font-medium text-slate-500 mb-1 block">Total Mensualidad</label><NI value={alEve.total} className="max-w-xs" onChange={v=>update(d=>{if(!d.allowanceEvelyn)d.allowanceEvelyn={total:0,deductions:[]};d.allowanceEvelyn.total=v;return d})}/></div>
+      <label className="text-xs font-medium text-slate-500 mb-2 block">Descuentos (cuotas, adelantos, etc.)</label>
+      <div className="space-y-2">{(alEve.deductions||[]).map((ded,i)=><div key={ded.id} className="flex items-center gap-2"><TI value={ded.description} placeholder="Concepto" className="flex-1" onChange={v=>update(d=>{d.allowanceEvelyn.deductions[i].description=v;return d})}/><NI value={ded.amount} className="w-28 shrink-0" onChange={v=>update(d=>{d.allowanceEvelyn.deductions[i].amount=v;return d})}/><button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.allowanceEvelyn.deductions=d.allowanceEvelyn.deductions.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></div>)}</div>
+      <button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.allowanceEvelyn)d.allowanceEvelyn={total:0,deductions:[]};d.allowanceEvelyn.deductions.push({id:uid(),description:"",amount:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar descuento</button>
+      <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1 mt-3"><div className="flex justify-between"><span className="text-slate-500">Mensualidad</span><span className="font-medium">{fmtARS(alEve.total)}</span></div><div className="flex justify-between"><span className="text-slate-500">− Descuentos</span><span className="font-medium text-amber-600">−{fmtARS(alEveDed)}</span></div><div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-700 font-semibold">= Neto a percibir</span><span className="font-bold text-emerald-600">{fmtARS(alEve.total-alEveDed)}</span></div></div></Card>;
+
+    case "allowanceLautaro": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.banknote} title="Mensualidad Lautaro" sub="Control de mensualidad y descuentos"/></div></div>
+      <div className="mb-3"><label className="text-xs font-medium text-slate-500 mb-1 block">Total Mensualidad</label><NI value={alLau.total} className="max-w-xs" onChange={v=>update(d=>{if(!d.allowanceLautaro)d.allowanceLautaro={total:0,deductions:[]};d.allowanceLautaro.total=v;return d})}/></div>
+      <label className="text-xs font-medium text-slate-500 mb-2 block">Descuentos (cuotas, adelantos, etc.)</label>
+      <div className="space-y-2">{(alLau.deductions||[]).map((ded,i)=><div key={ded.id} className="flex items-center gap-2"><TI value={ded.description} placeholder="Concepto" className="flex-1" onChange={v=>update(d=>{d.allowanceLautaro.deductions[i].description=v;return d})}/><NI value={ded.amount} className="w-28 shrink-0" onChange={v=>update(d=>{d.allowanceLautaro.deductions[i].amount=v;return d})}/><button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.allowanceLautaro.deductions=d.allowanceLautaro.deductions.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></div>)}</div>
+      <button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.allowanceLautaro)d.allowanceLautaro={total:0,deductions:[]};d.allowanceLautaro.deductions.push({id:uid(),description:"",amount:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar descuento</button>
+      <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1 mt-3"><div className="flex justify-between"><span className="text-slate-500">Mensualidad</span><span className="font-medium">{fmtARS(alLau.total)}</span></div><div className="flex justify-between"><span className="text-slate-500">− Descuentos</span><span className="font-medium text-amber-600">−{fmtARS(alLauDed)}</span></div><div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-700 font-semibold">= Neto a percibir</span><span className="font-bold text-emerald-600">{fmtARS(alLau.total-alLauDed)}</span></div></div></Card>;
+
+    case "cleaning": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.spray} title="Cuenta Limpieza" sub={`${MONTHS[month]} ${year}`}/></div></div>
+      <div className="mb-4"><label className="text-xs font-medium text-slate-500 mb-1 block">Acuerdo vigente</label><TA value={cl.agreement||""} placeholder="Ej: 2 veces/semana, 4hs, $X/hora + transporte" onChange={v=>update(d=>{if(!d.cleaning)d.cleaning={agreement:"",weeks:[]};d.cleaning.agreement=v;return d})}/></div>
+      <div className="space-y-2 mb-3"><div className="grid grid-cols-[24px_1fr_90px_90px_34px_28px] sm:grid-cols-[24px_1fr_110px_110px_34px_28px] gap-2 text-xs font-medium text-slate-500 px-1"><span/><span>Semana</span><span className="text-right">Pago</span><span className="text-right">Transporte</span><span className="text-center">Pag.</span><span/></div>
+        {cl.weeks.map((w,i)=><div key={w.id} className="grid grid-cols-[24px_1fr_90px_90px_34px_28px] sm:grid-cols-[24px_1fr_110px_110px_34px_28px] gap-2 items-center"><PT value={w.persist} onChange={()=>update(d=>{d.cleaning.weeks[i].persist=!d.cleaning.weeks[i].persist;return d})}/><TI value={w.label} placeholder={`Semana ${i+1}`} onChange={v=>update(d=>{d.cleaning.weeks[i].label=v;return d})}/><NI value={w.pay} onChange={v=>update(d=>{d.cleaning.weeks[i].pay=v;return d})}/><NI value={w.transport} onChange={v=>update(d=>{d.cleaning.weeks[i].transport=v;return d})}/><button className={`p-1 rounded-md border transition justify-self-center ${w.paid?"bg-emerald-50 border-emerald-300 text-emerald-600":"bg-slate-50 border-slate-200 text-slate-300"}`} title={w.paid?"Pagada":"Pendiente"} onClick={()=>update(d=>{d.cleaning.weeks[i].paid=!d.cleaning.weeks[i].paid;return d})}>{w.paid?I.check({className:"w-3.5 h-3.5"}):<div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300"/>}</button><button className="p-0.5 hover:bg-red-50 rounded" onClick={()=>update(d=>{d.cleaning.weeks=d.cleaning.weeks.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-3.5 h-3.5 text-red-400"})}</button></div>)}</div>
+      <button className="mb-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.cleaning)d.cleaning={agreement:"",weeks:[]};d.cleaning.weeks.push({id:uid(),label:`Semana ${d.cleaning.weeks.length+1}`,pay:0,transport:0,persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar semana</button>
+      <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1"><div className="flex justify-between"><span className="text-slate-500">Total Pago</span><span className="font-medium">{fmtARS(clPay)}</span></div><div className="flex justify-between"><span className="text-slate-500">Total Transporte</span><span className="font-medium">{fmtARS(clTrans)}</span></div><div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-700 font-semibold">Total a Abonar</span><span className="font-bold text-blue-700">{fmtARS(clAll)}</span></div><div className="flex justify-between"><span className="text-slate-500">Semanas pagadas</span><span className="font-medium">{cl.weeks.filter(w=>w.paid).length}/{cl.weeks.length}</span></div></div></Card>;
+
+    case "savings": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.vault} title="Ahorros" sub="Cuentas y montos acumulados"/></div></div>
+      <div className="space-y-2">{(data.savings?.accounts||[]).map((acc,i)=><div key={acc.id} className="flex items-center gap-2 flex-wrap sm:flex-nowrap"><PT value={acc.persist} onChange={()=>update(d=>{d.savings.accounts[i].persist=!d.savings.accounts[i].persist;return d})}/><TI value={acc.name} placeholder="Cuenta (ej: Brubank, Dólares Colchón)" className="flex-1 min-w-[120px]" onChange={v=>update(d=>{d.savings.accounts[i].name=v;return d})}/><NI value={acc.amountARS} prefix="ARS" className="w-28 shrink-0" onChange={v=>update(d=>{d.savings.accounts[i].amountARS=v;return d})}/><NI value={acc.amountUSD} prefix="USD" className="w-28 shrink-0" onChange={v=>update(d=>{d.savings.accounts[i].amountUSD=v;return d})}/><button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.savings.accounts=d.savings.accounts.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></div>)}</div>
+      <button className="mt-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.savings)d.savings={accounts:[]};d.savings.accounts.push({id:uid(),name:"",amountARS:0,amountUSD:0,persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar cuenta</button>
+      <div className="bg-slate-50 rounded-lg p-3 text-xs mt-3 flex justify-between flex-wrap gap-2"><div><span className="text-slate-500">Total ARS: </span><span className="font-bold">{fmtARS((data.savings?.accounts||[]).reduce((s,a)=>s+(a.amountARS||0),0))}</span></div><div><span className="text-slate-500">Total USD: </span><span className="font-bold">{fmtUSD((data.savings?.accounts||[]).reduce((s,a)=>s+(a.amountUSD||0),0))}</span></div></div></Card>;
+
+    case "notes": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.note} title="Anotaciones Mensuales" sub="CBUs, datos útiles, recordatorios"/></div></div>
+      <div className="space-y-3">{(data.notes||[]).map((n,i)=><div key={n.id} className="border border-slate-100 rounded-lg p-3 bg-slate-50/50 space-y-2"><div className="flex items-center gap-1.5"><PT value={n.persist} onChange={()=>update(d=>{d.notes[i].persist=!d.notes[i].persist;return d})}/><TI value={n.title} placeholder="Título" className="flex-1 font-medium" onChange={v=>update(d=>{d.notes[i].title=v;return d})}/><button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.notes=d.notes.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></div><TA value={n.content||""} placeholder="Contenido..." bg="bg-white" onChange={v=>update(d=>{d.notes[i].content=v;return d})}/></div>)}</div>
+      <button className="mt-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.notes)d.notes=[];d.notes.push({id:uid(),title:"",content:"",persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar anotación</button></Card>;
+
+    case "files": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.file} title="Archivos del Mes" sub="Resúmenes de tarjeta — se convierten solos a texto"/></div></div>
+      <input ref={fileInputRef} type="file" className="hidden" multiple onChange={e=>{Array.from(e.target.files||[]).forEach(uploadFile);e.target.value=""}}/>
+      <button className={`mb-3 flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition ${uploading?"bg-slate-100 text-slate-400":"bg-blue-600 text-white hover:bg-blue-700"}`} disabled={uploading} onClick={()=>fileInputRef.current?.click()}>{I.upload({className:"w-4 h-4"})} {uploading?"Subiendo...":"Subir archivo"}</button>
+      {periodFiles.length>0&&<div className="space-y-1">{periodFiles.filter(f=>f.name!==".emptyFolderPlaceholder"&&!f.name.startsWith("__bg__")).map(f=>{const cs=convStatus[f.name];return<div key={f.name}>
+        <div className="flex items-center gap-2 text-sm py-1.5 px-2 rounded-lg hover:bg-slate-50">
+          <a href={fileUrl(f.name)} target="_blank" rel="noopener" className="flex items-center gap-2 flex-1 text-blue-600 hover:underline min-w-0">{I.file({className:"w-4 h-4 shrink-0"})}<span className="truncate">{f.name}</span></a>
+          <span className="text-xs text-slate-400 shrink-0">{f.metadata?.size?`${(f.metadata.size/1024).toFixed(0)}KB`:""}</span>
+          {cs?.status==="processing"&&<Badge color="amber">Convirtiendo…</Badge>}
+          {cs?.status==="done"&&<button onClick={()=>setOpenMd(openMd===f.name?null:f.name)}><Badge color="green">{openMd===f.name?"Ocultar texto":"Ver texto"}</Badge></button>}
+          {cs?.status==="error"&&<Badge color="red" title={cs.error}>Error conversión</Badge>}
+          <button className="p-1 hover:bg-red-50 rounded" onClick={()=>deleteFile(f.name)}>{I.trash({className:"w-3.5 h-3.5 text-red-400"})}</button>
+        </div>
+        {openMd===f.name&&cs?.markdown&&<pre className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 mt-1 mb-2 whitespace-pre-wrap max-h-96 overflow-y-auto">{cs.markdown}</pre>}
+      </div>})}</div>}
+      {periodFiles.filter(f=>f.name!==".emptyFolderPlaceholder"&&!f.name.startsWith("__bg__")).length===0&&<p className="text-xs text-slate-400">Sin archivos para este período.</p>}</Card>;
+
+    case "cashBudget": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.banknote} title="Efectivo no registrado" sub="Presupuesto de gastos en efectivo que no pasan por tarjeta"/></div></div>
+      <div className="flex items-center gap-3 flex-wrap"><NI value={(data.cashBudget||{}).amountARS||0} className="max-w-xs" onChange={v=>update(d=>{if(!d.cashBudget)d.cashBudget={amountARS:0,note:""};d.cashBudget.amountARS=v;return d})}/><TI value={(data.cashBudget||{}).note||""} placeholder="Nota (opcional)" className="flex-1 min-w-[150px]" onChange={v=>update(d=>{if(!d.cashBudget)d.cashBudget={amountARS:0,note:""};d.cashBudget.note=v;return d})}/></div>
+      <p className="text-xs text-slate-400 mt-2">Se suma a los Egresos Reales del mes.</p></Card>;
+
+    case "reimbursements": {const rs=data.reimbursements||[];const pend=rs.filter(r=>r.status!=="received").reduce((s,r)=>s+(r.amount||0),0);const rec=rs.filter(r=>r.status==="received").reduce((s,r)=>s+(r.amount||0),0);return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.refresh} title="Reintegros" sub="Vet, Telépase, devoluciones — plata a recuperar"/></div></div>
+      <div className="flex gap-2 mb-3 flex-wrap"><Badge color="amber">Pendiente: {fmtARS(pend)}</Badge><Badge color="green">Cobrado: {fmtARS(rec)}</Badge></div>
+      <div className="space-y-2">{rs.map((r,i)=><div key={r.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+        <PT value={r.persist} onChange={()=>update(d=>{d.reimbursements[i].persist=!d.reimbursements[i].persist;return d})}/>
+        <button className={`p-1.5 rounded-lg border transition shrink-0 ${r.status==="received"?"text-emerald-500 border-emerald-300 bg-emerald-50":"text-slate-300 border-slate-200"}`} title={r.status==="received"?"Cobrado":"Pendiente de cobro"} onClick={()=>update(d=>{const x=d.reimbursements[i];x.status=x.status==="received"?"pending":"received";x.receivedAt=x.status==="received"?new Date().toISOString():null;return d})}>{r.status==="received"?I.check({className:"w-4 h-4"}):<div className="w-4 h-4 rounded-full border-2 border-slate-300"/>}</button>
+        <TI value={r.concept} placeholder="Concepto (Vet, Telépase…)" className="flex-1 min-w-[120px]" onChange={v=>update(d=>{d.reimbursements[i].concept=v;return d})}/>
+        <select value={r.cardRef||""} title="Tarjeta donde se cargó" className="text-xs border border-slate-200 rounded-lg py-2 px-1 bg-slate-50 shrink-0" style={{width:"6rem"}} onChange={e=>update(d=>{d.reimbursements[i].cardRef=e.target.value;return d})}><option value="">Tarjeta…</option>{data.cards.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select>
+        <NI value={r.amount} className="w-28 shrink-0" onChange={v=>update(d=>{d.reimbursements[i].amount=v;return d})}/>
+        <button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.reimbursements=d.reimbursements.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+      </div>)}</div>
+      <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium" onClick={()=>update(d=>{if(!d.reimbursements)d.reimbursements=[];d.reimbursements.push({id:uid(),concept:"",amount:0,status:"pending",cardRef:"",persist:false});return d})}>{I.plus({className:"w-4 h-4"})} Agregar reintegro</button></Card>;}
+
+    case "bankBalances": {const bb=data.bankBalances||[];const tARS=bb.reduce((s,b)=>s+(b.amountARS||0),0);const tUSD=bb.reduce((s,b)=>s+(b.amountUSD||0),0);return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.vault} title="Conciliación bancaria" sub="Saldo de cada cuenta en el momento — tomá el mismo día en todas"/></div></div>
+      <div className="space-y-2">{bb.map((b,i)=><div key={b.id} className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+        <PT value={b.persist} onChange={()=>update(d=>{d.bankBalances[i].persist=!d.bankBalances[i].persist;return d})}/>
+        <TI value={b.name} placeholder="Cuenta (Galicia, BBVA…)" className="flex-1 min-w-[120px]" onChange={v=>update(d=>{d.bankBalances[i].name=v;return d})}/>
+        <NI value={b.amountARS} prefix="ARS" className="w-28 shrink-0" onChange={v=>update(d=>{d.bankBalances[i].amountARS=v;return d})}/>
+        <NI value={b.amountUSD} prefix="USD" className="w-28 shrink-0" onChange={v=>update(d=>{d.bankBalances[i].amountUSD=v;return d})}/>
+        <input type="date" value={b.asOf||""} className="text-xs border border-slate-200 rounded-lg py-2 px-1 bg-slate-50 shrink-0 outline-none" onChange={e=>update(d=>{d.bankBalances[i].asOf=e.target.value;return d})}/>
+        <button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.bankBalances=d.bankBalances.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+      </div>)}</div>
+      <button className="mt-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.bankBalances)d.bankBalances=[];d.bankBalances.push({id:uid(),name:"",amountARS:0,amountUSD:0,asOf:new Date().toISOString().slice(0,10),persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar cuenta</button>
+      <div className="bg-slate-50 rounded-lg p-3 text-xs mt-3 flex justify-between flex-wrap gap-2"><div><span className="text-slate-500">Total ARS: </span><span className="font-bold">{fmtARS(tARS)}</span></div><div><span className="text-slate-500">Total USD: </span><span className="font-bold">{fmtUSD(tUSD)}</span></div></div></Card>;}
+
+    default: return null;
+    }
+  };
+
+  return <div className="min-h-screen" style={data.bgImage?{backgroundImage:`url("${data.bgImage}")`,backgroundSize:"cover",backgroundPosition:"center",backgroundAttachment:"fixed"}:{background:"radial-gradient(620px 230px at 14% 12%, rgba(255,255,255,.92), rgba(255,255,255,0) 70%), radial-gradient(520px 200px at 82% 20%, rgba(255,255,255,.82), rgba(255,255,255,0) 72%), radial-gradient(760px 280px at 62% 78%, rgba(255,255,255,.6), rgba(255,255,255,0) 72%), linear-gradient(180deg,#a9d3ef 0%,#c9e6f6 36%,#eaf5fc 100%)",backgroundAttachment:"fixed"}}>
+    <div aria-hidden="true" className="fixed inset-0 z-0 pointer-events-none overflow-hidden flex items-center justify-center">
+      <div style={{transform:"rotate(-28deg)",textAlign:"center",opacity:0.4,filter:"blur(5px)",color:"#ffffff",userSelect:"none"}}>
+        <div style={{fontSize:"20vw",fontWeight:800,lineHeight:0.9,textTransform:"uppercase",whiteSpace:"nowrap"}}>{MONTHS[month]}</div>
+        <div style={{fontSize:"9vw",fontWeight:700,letterSpacing:"0.15em"}}>{year}</div>
+      </div>
+    </div>
+    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
+      <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2.5"><div className="p-2 bg-blue-600 rounded-xl">{I.piggyBank({className:"w-5 h-5 text-white"})}</div><div><h1 className="text-lg font-semibold text-slate-800 leading-tight" style={{letterSpacing:"-.02em"}}>Finanzas <span className="acc">E&L</span></h1><p className="text-xs text-slate-400 leading-tight">Gestión mensual</p></div></div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="text-sm border border-slate-200 rounded-lg py-1.5 px-2 bg-white outline-none">{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+          <select value={year} onChange={e=>setYear(Number(e.target.value))} className="text-sm border border-slate-200 rounded-lg py-1.5 px-2 bg-white outline-none">{[2024,2025,2026,2027,2028].map(y=><option key={y} value={y}>{y}</option>)}</select>
+          <input ref={bgInputRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files&&e.target.files[0];if(f)uploadBg(f);e.target.value="";}}/>
+          <button title="Fondo del mes" disabled={bgUploading} onClick={()=>bgInputRef.current&&bgInputRef.current.click()} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 transition">{I.image({className:"w-4 h-4"})}</button>
+          {data.bgImage&&<button title="Quitar fondo" onClick={removeBg} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-red-500 transition">{I.x({className:"w-4 h-4"})}</button>}
+          <SyncBadge status={syncStatus}/>
+          <div style={{opacity:saveFlash?1:0,transition:"opacity .3s"}} className="flex items-center gap-1 text-xs">{I.check({className:"w-3.5 h-3.5 text-emerald-500"})}<span className="text-emerald-600 font-medium">OK</span></div>
+        </div>
+      </div>
+    </header>
+
+    <main className="max-w-4xl mx-auto px-4 py-5 space-y-5 relative z-10">
+      {!isNew&&<div className="hidden xl:block fixed z-20" style={{right:"8px",top:"96px",width:"180px"}}>
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3" style={{maxHeight:"80vh",overflowY:"auto"}}>
+          <p className="text-xs font-semibold text-slate-500 mb-2 px-1">Índice</p>
+          <nav className="space-y-0.5">{secOrder.map(k=><button key={k} onClick={()=>{const el=document.getElementById("sec-"+k);if(el)el.scrollIntoView({behavior:"smooth",block:"start"})}} className="w-full text-left text-xs text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-md px-2 py-1.5 transition truncate">{SECTION_LABELS[k]||k}</button>)}</nav>
+        </div>
+      </div>}
+      {isNew&&<Card className="text-center py-8">
+        <div className="flex justify-center mb-3">{I.piggyBank({className:"w-8 h-8 text-blue-500"})}</div>
+        <h3 className="text-base font-semibold text-slate-800 mb-1">El mes {MONTHS[month]} {year} todavía no existe</h3>
+        <p className="text-xs text-slate-500 mb-4">{Object.keys(allData).length>0?"Al crearlo se copian los campos fijos del mes anterior con los montos en $0.":"Se creará un mes en blanco."}</p>
+        <button className="inline-flex items-center gap-2 text-sm font-medium px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition" onClick={()=>update(d=>d)}>{I.plus({className:"w-4 h-4"})} Crear mes {MONTHS[month]} {year}</button>
+      </Card>}
+
+      {!isNew&&<>
+      <div className="pt-1 pb-1"><h2 className="font-semibold text-slate-800" style={{fontSize:"28px",letterSpacing:"-.03em",lineHeight:1.05,textShadow:"0 1px 6px rgba(255,255,255,.55)"}}>Tu mes, <span className="acc" style={{color:"var(--green)"}}>en orden</span>.</h2></div>
+      {/* Dashboard */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {[
+          {l:"Ingresos",v:fmtARS(totalInc),s:fmtUSD(toUSD(totalInc)),Ic:I.trendUp,ci:"text-emerald-500",cv:"text-emerald-700"},
+          {l:"Egresos Reales",v:fmtARS(totalEgr),s:`Fijos ${fmtARS(totalExpC)} · Tarjetas ${fmtARS(totalCards)} · Limp. ${fmtARS(clAll)} · Efec. ${fmtARS(cashBudget)}`,Ic:I.trendDown,ci:"text-red-500",cv:"text-red-700"},
+          {l:"Saldo Neto",v:fmtARS(saldo),s:fmtUSD(toUSD(saldo)),Ic:I.wallet,ci:saldo>=0?"text-blue-500":"text-red-500",cv:saldo>=0?"text-blue-700":"text-red-700"},
+        ].map(({l,v,s,Ic,ci,cv})=>{const g=l==="Saldo Neto";return <Card key={l} className="!p-4 origin-card" style={g?{background:"#e6efe8",borderColor:"#cfe3d8"}:undefined}><div className="flex items-start justify-between mb-1"><span className="text-xs" style={{color:g?"#4f7a6c":"var(--sub)"}}>{l}</span>{g?Ic({className:"w-4 h-4",style:{color:"#17493a"}}):Ic({className:`w-4 h-4 ${ci}`})}</div><p className={`font-semibold leading-tight ${g?"":cv}`} style={{fontSize:"22px",letterSpacing:"-.02em",color:g?(saldo>=0?"#0f3527":"#a3311f"):undefined}}>{v}</p><p className="text-xs mt-1" style={{color:g?"#5f8a7b":"var(--sub)"}}>{s}</p></Card>;})}
+      </div>
+
+      {/* Sortable sections */}
+      <div ref={sectionsRef} className="space-y-5">
+        {secOrder.map(k=><div key={k} id={`sec-${k}`} style={{scrollMarginTop:"80px"}}>{renderSection(k)}</div>)}
+      </div>
+
+      {/* Resumen Final */}
+      <Card className="text-white origin-card" style={{background:"linear-gradient(160deg,#1c5644,#0f3527)",borderColor:"#0f3527"}}>
+        <ST icon={I.users} title="Resumen del Mes" sub={`${MONTHS[month]} ${year}`}/>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-3">
+          <div><p className="text-xs text-slate-400">Ingresos Totales</p><p className="text-lg font-bold text-emerald-400">{fmtARS(totalInc)}</p><p className="text-xs text-slate-500">{fmtUSD(toUSD(totalInc))}</p></div>
+          <div><p className="text-xs text-slate-400">Egresos Reales</p><p className="text-lg font-bold text-red-400">{fmtARS(totalEgr)}</p><p className="text-xs text-slate-500 mt-0.5">Fijos: {fmtARS(totalExpC)} · Tarjetas: {fmtARS(totalCards)} · Limp: {fmtARS(clAll)} · Efec: {fmtARS(cashBudget)}</p></div>
+          <div><p className="text-xs text-slate-400">Saldo Neto</p><p className={`text-lg font-bold ${saldo>=0?"text-blue-400":"text-red-400"}`}>{fmtARS(saldo)}</p><p className="text-xs text-slate-500">{fmtUSD(toUSD(saldo))}</p></div>
+        </div>
+      </Card>
+      </>}
+
+      {/* Leyenda */}
+      <Card><div className="flex flex-wrap gap-3 text-xs text-slate-500">
+        <div className="flex items-center gap-1">{I.pin({className:"w-3 h-3 text-blue-500"})}<span>Fijo (se copia)</span></div>
+        <div className="flex items-center gap-1">{I.pinOff({className:"w-3 h-3 text-slate-300"})}<span>Temporal</span></div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full border-2 border-slate-300"/><span>Pendiente</span></div>
+        <div className="flex items-center gap-1">{I.check({className:"w-3 h-3 text-emerald-500"})}<span>Pagado</span></div>
+        <div className="flex items-center gap-1">{I.zap({className:"w-3 h-3 text-blue-500"})}<span>Déb. auto</span></div>
+        <div className="flex items-center gap-1">{I.grip({className:"w-3 h-3 text-slate-400"})}<span>Arrastrar</span></div>
+      </div></Card>
+
+      {/* Backup */}
+      <Card><ST icon={I.refresh} title="Backup y Seguridad" sub="Exportá e importá tu historial"/>
+        <div className="flex flex-wrap gap-3">
+          <button className="flex items-center gap-2 text-sm font-medium px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition" onClick={exportB}>{I.download({className:"w-4 h-4"})} Exportar JSON</button>
+          <button className="flex items-center gap-2 text-sm font-medium px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition" onClick={()=>setSI(!showImport)}>{I.upload({className:"w-4 h-4"})} Importar</button>
+          <button className="flex items-center gap-2 text-sm font-medium px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition" onClick={resetPeriod}>{I.xCircle({className:"w-4 h-4"})} Resetear {pk}</button>
+        </div>
+        {showImport&&<div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg"><p className="text-xs text-amber-700 mb-2">Reemplazará TODOS los datos actuales.</p><input type="file" accept=".json" onChange={importB} className="text-sm"/></div>}
+        <div className="mt-4 pt-3 border-t border-slate-100">
+          <label className="text-xs font-medium text-slate-500 mb-1 block">Cuenta de Google para "Agendar vencimiento"</label>
+          <input type="text" value={gcalUser} placeholder="0" onChange={e=>{const v=e.target.value;setGcalUser(v);try{localStorage.setItem("gcal_authuser",v)}catch(err){}}} className="w-full max-w-xs rounded-lg border border-slate-200 bg-slate-50 py-2 px-3 text-sm outline-none focus:border-blue-400"/>
+          <p className="text-xs text-slate-400 mt-1">Recomendado: el <b>número</b> de usuario (0 = la primera cuenta con la que iniciaste sesión, 1 = la segunda, etc.) — es el "u/N" que ves en la URL de Google cuando estás logueado. También podés poner tu email (va como authuser), pero el número es lo más confiable.</p>
+        </div>
+        <div className="mt-3">
+          <label className="text-xs font-medium text-slate-500 mb-1 block">Calendario destino (ID)</label>
+          <input type="text" value={gcalSrc} placeholder="Ej: xxxxx@group.calendar.google.com" onChange={e=>{const v=e.target.value;setGcalSrc(v);try{localStorage.setItem("gcal_src",v)}catch(err){}}} className="w-full max-w-md rounded-lg border border-slate-200 bg-slate-50 py-2 px-3 text-sm outline-none focus:border-blue-400"/>
+          <p className="text-xs text-slate-400 mt-1">Para que el evento caiga en tu calendario "1 - pareja", no va el nombre sino el <b>ID</b>. Buscalo en Google Calendar → Configuración → clic en "1 - pareja" → "Integrar calendario" → "ID de calendario" (termina en @group.calendar.google.com). Si lo dejás vacío, usa tu calendario principal.</p>
+        </div>
+      </Card>
+      <p className="text-center text-xs text-slate-400 pb-6">Finanzas E&L · Sync: {syncStatus} · {Object.keys(allData).length} período(s)</p>
+    </main>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
