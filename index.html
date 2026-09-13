@@ -121,13 +121,13 @@ const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto",
 const LOCAL_KEY="gestion_financiera_ev_lau_cache";
 const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosTiempoReal","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
 const DEFAULT_TARJETAS_RT=()=>[
-  {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",automatizada:true,manual:0},
-  {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",automatizada:true,manual:0},
-  {id:uid(),nombre:"Visa Galicia 3110",last4:"",automatizada:true,manual:0},
-  {id:uid(),nombre:"Mastercard Galicia Internacional",last4:"",automatizada:true,manual:0},
-  {id:uid(),nombre:"Mercado Pago (tarjeta virtual)",last4:"",automatizada:true,manual:0},
-  {id:uid(),nombre:"BBVA Visa Gold (Eve)",last4:"",automatizada:false,manual:0},
-  {id:uid(),nombre:"BBVA Mastercard (Lauti)",last4:"",automatizada:false,manual:0},
+  {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"Visa Galicia 3110",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"Mastercard Galicia Internacional",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"Mercado Pago (tarjeta virtual)",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"BBVA Visa Gold (Eve)",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"BBVA Mastercard (Lauti)",last4:"",limite:0,manuales:[]},
 ];
 
 const emptyPeriod=()=>({
@@ -171,7 +171,7 @@ const templateFromPeriod=(src)=>{
     bankBalances:(src.bankBalances||[]).filter(b=>b.persist!==false).map(b=>({...b,id:uid(),amountARS:0,amountUSD:0})),
     notes:(src.notes||[]).filter(n=>n.persist!==false).map(n=>({...n,id:uid(),content:n.persist!==false?n.content:""})),
     files:[],
-    consumosTiempoReal:{tarjetas:(src.consumosTiempoReal?.tarjetas&&src.consumosTiempoReal.tarjetas.length?src.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT()).map(t=>({...t,id:uid(),manual:0}))},
+    consumosTiempoReal:{tarjetas:(src.consumosTiempoReal?.tarjetas&&src.consumosTiempoReal.tarjetas.length?src.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT()).map(t=>({...t,id:uid(),manuales:[]}))},
   };
 };
 
@@ -243,6 +243,7 @@ function App(){
   const pk=`${year}-${String(month+1).padStart(2,"0")}`;
   const[allData,setAllData,writePeriod,syncStatus]=useSupabaseState();
   const[expandedCards,setEC]=useState({});
+  const[expandedRT,setERT]=useState({});
   const[showImport,setSI]=useState(false);
   const[saveFlash,setSF]=useState(false);
   const[gcalUser,setGcalUser]=useState(()=>{try{return localStorage.getItem("gcal_authuser")||"0"}catch(e){return"0"}});
@@ -261,31 +262,36 @@ function App(){
   const data=useMemo(()=>{if(allData[pk])return allData[pk];const s=findSource(allData,pk);return s?templateFromPeriod(s):emptyPeriod()},[allData,pk]);
   const update=useCallback(fn=>{setAllData(prev=>{let cur=prev[pk]||(findSource(prev,pk)?templateFromPeriod(findSource(prev,pk)):emptyPeriod());const next=fn(JSON.parse(JSON.stringify(cur)));writePeriod(pk,next);return{...prev,[pk]:next}});setSF(true);setTimeout(()=>setSF(false),800)},[pk,setAllData,writePeriod]);
 
-  const[autoTotals,setAutoTotals]=useState({});
-  const[autoUnmatched,setAutoUnmatched]=useState(0);
+  const[autoMovs,setAutoMovs]=useState({});
+  const[autoUnmatched,setAutoUnmatched]=useState([]);
   const[syncing,setSyncing]=useState(false);
   const[lastSync,setLastSync]=useState(null);
-  const loadAutoTotals=useCallback(async()=>{
+  const loadAutoMovs=useCallback(async()=>{
     try{
       const[yy,mm]=pk.split("-").map(Number);
       const start=`${pk}-01`;
       const endD=new Date(yy,mm,1);
       const end=`${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-01`;
-      const{data:rows,error}=await supabase.from("consumos_personales").select("card_last4,amount,status").eq("classification","personal").gte("date_created",start).lt("date_created",end);
+      const{data:rowsQ,error}=await supabase.from("consumos_personales").select("source_id,date_created,description,amount,card_last4,status").eq("classification","personal").gte("date_created",start).lt("date_created",end).order("date_created",{ascending:false});
       if(error)throw error;
-      const totals={};let unmatched=0;
-      (rows||[]).forEach(r=>{if((r.status||"approved")!=="approved")return;const l4=(r.card_last4||"").trim();if(l4)totals[l4]=(totals[l4]||0)+Number(r.amount||0);else unmatched+=Number(r.amount||0)});
-      setAutoTotals(totals);setAutoUnmatched(unmatched);
+      const byCard={};const unmatched=[];
+      (rowsQ||[]).forEach(r=>{
+        if((r.status||"approved")!=="approved")return;
+        const mov={id:r.source_id,fecha:r.date_created,desc:r.description||"(sin descripción)",monto:Number(r.amount||0)};
+        const l4=(r.card_last4||"").trim();
+        if(l4){if(!byCard[l4])byCard[l4]=[];byCard[l4].push(mov)}else unmatched.push(mov);
+      });
+      setAutoMovs(byCard);setAutoUnmatched(unmatched);
     }catch(e){console.error("Error cargando consumos automáticos:",e)}
   },[pk]);
-  useEffect(()=>{loadAutoTotals()},[loadAutoTotals]);
+  useEffect(()=>{loadAutoMovs()},[loadAutoMovs]);
   const runSyncNow=async()=>{
     setSyncing(true);
     try{
       const{error}=await supabase.functions.invoke("trigger-sync-mp",{body:{}});
       if(error)throw error;
       setLastSync(new Date());
-      await loadAutoTotals();
+      await loadAutoMovs();
     }catch(e){alert("Error al sincronizar: "+e.message)}
     setSyncing(false);
   };
@@ -365,6 +371,7 @@ function App(){
   const importB=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);const vals=Object.values(p);const imported=vals.length===1?vals[0]:vals[0];writePeriod(pk,imported);setAllData(prev=>({...prev,[pk]:imported}));setSI(false)}catch(er){alert("Archivo inválido")}};r.readAsText(f)};
   const resetPeriod=async()=>{if(!confirm(`¿Borrar TODOS los datos de ${pk}? Esta acción no se puede deshacer.`))return;try{await supabase.from(TABLE_NAME).delete().eq("id",pk);setAllData(prev=>{const n={...prev};delete n[pk];return n})}catch(e){alert("Error: "+e.message)}};
   const toggleCard=id=>setEC(p=>({...p,[id]:!p[id]}));
+  const toggleRT=id=>setERT(p=>({...p,[id]:!p[id]}));
   const isNew=!allData[pk];
 
   const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",consumosTiempoReal:"Consumos en Tiempo Real",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
@@ -442,8 +449,19 @@ function App(){
 
     case "consumosTiempoReal": {
       const tarjetas=(data.consumosTiempoReal&&data.consumosTiempoReal.tarjetas&&data.consumosTiempoReal.tarjetas.length)?data.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT();
-      const rows=tarjetas.map(t=>{const auto=autoTotals[(t.last4||"").trim()]||0;const usaAuto=!!(t.automatizada&&t.last4);const totalTarjeta=usaAuto?auto:(t.manual||0);const diff=usaAuto?(t.manual||0)-auto:null;return{...t,auto,totalTarjeta,diff,usaAuto}});
-      const totalMes=rows.reduce((s,r)=>s+r.totalTarjeta,0);
+      const rows=tarjetas.map(t=>{
+        const autos=(autoMovs[(t.last4||"").trim()]||[]).slice().sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+        const autoTotal=autos.reduce((s,m)=>s+m.monto,0);
+        const manuales=t.manuales||[];
+        const manualTotal=manuales.reduce((s,m)=>s+(m.monto||0),0);
+        const total=autoTotal+manualTotal;
+        const limite=t.limite||0;
+        const disponible=limite>0?limite-total:null;
+        return{...t,autos,autoTotal,manuales,manualTotal,total,limite,disponible};
+      });
+      const totalMes=rows.reduce((s,r)=>s+r.total,0);
+      const limiteTotal=rows.reduce((s,r)=>s+(r.limite||0),0);
+      const unmatchedTotal=autoUnmatched.reduce((s,m)=>s+m.monto,0);
       return <Card key={key}>
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
           <div className="flex items-center gap-2"><Grip/><div className="section-grip"><ST icon={I.creditCard} title="Consumos en Tiempo Real" sub="Automático (Mercado Pago + notificaciones Galicia) + carga manual"/></div></div>
@@ -451,25 +469,43 @@ function App(){
         </div>
         <div className="flex gap-2 mb-3 flex-wrap">
           <Badge color="slate">Total del mes: {fmtARS(totalMes)}</Badge>
-          {autoUnmatched>0&&<Badge color="amber">Sin asignar a ninguna tarjeta: {fmtARS(autoUnmatched)}</Badge>}
+          {limiteTotal>0&&<Badge color="blue">Límite total: {fmtARS(limiteTotal)}</Badge>}
+          {limiteTotal>0&&<Badge color={(limiteTotal-totalMes)<0?"red":"green"}>Disponible total: {fmtARS(limiteTotal-totalMes)}</Badge>}
+          {unmatchedTotal>0&&<Badge color="amber">Sin asignar a ninguna tarjeta: {fmtARS(unmatchedTotal)}</Badge>}
           {lastSync&&<Badge color="green">Última sync manual: {lastSync.toLocaleTimeString("es-AR")}</Badge>}
         </div>
-        <div className="space-y-2">{rows.map((t,idx)=><div key={t.id} className="border border-slate-200 rounded-lg p-3">
-          <div className="flex items-center gap-2 flex-wrap mb-2">
-            <TI value={t.nombre} placeholder="Nombre de la tarjeta" className="flex-1 min-w-[140px]" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].nombre=v;return d})}/>
-            <TI value={t.last4} placeholder="Últ. 4" style={{width:"4.5rem"}} onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].last4=v.replace(/[^0-9]/g,"").slice(0,4);return d})}/>
-            <button className={`text-xs px-2 py-1 rounded-lg border transition shrink-0 ${t.automatizada?"bg-emerald-50 border-emerald-300 text-emerald-600":"bg-slate-50 border-slate-200 text-slate-400"}`} title="Si está activo, el total automático es el que entra al total del mes; si no, entra el manual" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].automatizada=!d.consumosTiempoReal.tarjetas[idx].automatizada;return d})}>{t.automatizada?"Automatizada":"Manual"}</button>
-            <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas=d.consumosTiempoReal.tarjetas.filter((_,i)=>i!==idx);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+        <div className="space-y-2">{rows.map((t,idx)=>{const exp=expandedRT[t.id]!==false;return<div key={t.id} className="border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center gap-2 flex-wrap cursor-pointer" onClick={()=>toggleRT(t.id)}>
+            <TI value={t.nombre} placeholder="Nombre de la tarjeta" className="flex-1 min-w-[140px]" onClick={e=>e.stopPropagation()} onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].nombre=v;return d})}/>
+            <TI value={t.last4} placeholder="Últ. 4" style={{width:"4.5rem"}} onClick={e=>e.stopPropagation()} onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].last4=v.replace(/[^0-9]/g,"").slice(0,4);return d})}/>
+            <div onClick={e=>e.stopPropagation()} className="w-32 shrink-0"><NI value={t.limite} placeholder="Límite" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].limite=v;return d})}/></div>
+            <Badge color="slate">Total: {fmtARS(t.total)}</Badge>
+            {t.limite>0&&<Badge color={t.disponible<0?"red":"green"}>Disp: {fmtARS(t.disponible)}</Badge>}
+            <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={e=>{e.stopPropagation();update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas=d.consumosTiempoReal.tarjetas.filter((_,i)=>i!==idx);return d})}}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+            {exp?I.chevUp({className:"w-4 h-4 text-slate-400"}):I.chevDown({className:"w-4 h-4 text-slate-400"})}
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="text-xs text-slate-500">Automático: <span className="font-medium text-slate-700">{fmtARS(t.auto)}</span></div>
-            <div className="flex items-center gap-1"><span className="text-xs text-slate-500">Manual:</span><NI value={t.manual} className="w-28" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].manual=v;return d})}/></div>
-            {t.diff!==null&&<Badge color={Math.abs(t.diff)<1?"green":"amber"}>Diferencia: {fmtARS(t.diff)}</Badge>}
-            <Badge color="slate">Entra al total: {fmtARS(t.totalTarjeta)}</Badge>
-          </div>
-        </div>)}</div>
-        <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:[]};d.consumosTiempoReal.tarjetas.push({id:uid(),nombre:"Nueva tarjeta",last4:"",automatizada:false,manual:0});return d})}>{I.plus({className:"w-4 h-4"})} Agregar tarjeta</button>
-        <p className="text-xs text-slate-400 mt-2">Automatizadas: Mercado Pago (QR/checkout) + notificaciones de Banco Galicia, filtradas por los últimos 4 dígitos. Para las que no tienen automático (BBVA, o cualquier banco nuevo), el campo Manual es el que entra al total del mes.</p>
+          {exp&&<div className="mt-3 space-y-3">
+            <div className="flex items-center gap-3 flex-wrap text-xs text-slate-500">
+              <span>Automático: <span className="font-medium text-slate-700">{fmtARS(t.autoTotal)}</span></span>
+              <span>Manual: <span className="font-medium text-slate-700">{fmtARS(t.manualTotal)}</span></span>
+            </div>
+            {t.autos.length>0&&<div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Consumos identificados automáticamente</label>
+              <div className="max-h-40 overflow-y-auto space-y-1 bg-slate-50 rounded-lg p-2">{t.autos.map(m=><div key={m.id} className="flex items-center gap-2 text-xs py-0.5"><span className="text-slate-400 shrink-0 w-16">{new Date(m.fecha).toLocaleDateString("es-AR")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}</div>
+            </div>}
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Consumos cargados a mano</label>
+              <div className="space-y-1.5">{t.manuales.map((m,mIdx)=><div key={m.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap"><input type="date" value={m.fecha||""} className="text-xs border border-slate-200 rounded-lg py-2 px-2 bg-slate-50 shrink-0" onChange={e=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].fecha=e.target.value;return d})}/><TI value={m.desc} placeholder="Descripción" className="flex-1 min-w-[100px]" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].desc=v;return d})}/><NI value={m.monto} className="w-28 shrink-0" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].monto=v;return d})}/><button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={()=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales=d.consumosTiempoReal.tarjetas[idx].manuales.filter((_,j)=>j!==mIdx);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></div>)}</div>
+              <button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};if(!d.consumosTiempoReal.tarjetas[idx].manuales)d.consumosTiempoReal.tarjetas[idx].manuales=[];d.consumosTiempoReal.tarjetas[idx].manuales.push({id:uid(),fecha:new Date().toISOString().slice(0,10),desc:"",monto:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar consumo manual</button>
+            </div>
+          </div>}
+        </div>})}</div>
+        {autoUnmatched.length>0&&<div className="mt-3">
+          <label className="text-xs font-medium text-amber-600 mb-1 block">Consumos automáticos sin tarjeta asignada (completá el "Últ. 4" que corresponda)</label>
+          <div className="max-h-40 overflow-y-auto space-y-1 bg-amber-50 rounded-lg p-2">{autoUnmatched.map(m=><div key={m.id} className="flex items-center gap-2 text-xs py-0.5"><span className="text-slate-400 shrink-0 w-16">{new Date(m.fecha).toLocaleDateString("es-AR")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}</div>
+        </div>}
+        <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:[]};d.consumosTiempoReal.tarjetas.push({id:uid(),nombre:"Nueva tarjeta",last4:"",limite:0,manuales:[]});return d})}>{I.plus({className:"w-4 h-4"})} Agregar tarjeta</button>
+        <p className="text-xs text-slate-400 mt-2">El total de cada tarjeta suma lo identificado automático (Mercado Pago + notificaciones Galicia, por últimos 4 dígitos) más lo cargado a mano. Usá la carga manual para lo que el automático no llega a ver.</p>
       </Card>;
     }
 
