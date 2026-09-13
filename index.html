@@ -119,7 +119,15 @@ const gcalDueUrl=(card,authuser,src)=>{if(!card.dueDate)return"#";const s=card.d
 
 const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const LOCAL_KEY="gestion_financiera_ev_lau_cache";
-const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
+const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosTiempoReal","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
+const DEFAULT_TARJETAS_RT=()=>[
+  {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",automatizada:true,manual:0},
+  {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",automatizada:true,manual:0},
+  {id:uid(),nombre:"Visa Galicia 3110",last4:"",automatizada:true,manual:0},
+  {id:uid(),nombre:"Mastercard Galicia Internacional",last4:"",automatizada:true,manual:0},
+  {id:uid(),nombre:"BBVA Visa Gold (Eve)",last4:"",automatizada:false,manual:0},
+  {id:uid(),nombre:"BBVA Mastercard (Lauti)",last4:"",automatizada:false,manual:0},
+];
 
 const emptyPeriod=()=>({
   dollarRate:0,
@@ -142,6 +150,7 @@ const emptyPeriod=()=>({
   bankBalances:[],
   notes:[{id:uid(),title:"",content:"",persist:true}],
   files:[],
+  consumosTiempoReal:{tarjetas:DEFAULT_TARJETAS_RT()},
 });
 
 const templateFromPeriod=(src)=>{
@@ -161,6 +170,7 @@ const templateFromPeriod=(src)=>{
     bankBalances:(src.bankBalances||[]).filter(b=>b.persist!==false).map(b=>({...b,id:uid(),amountARS:0,amountUSD:0})),
     notes:(src.notes||[]).filter(n=>n.persist!==false).map(n=>({...n,id:uid(),content:n.persist!==false?n.content:""})),
     files:[],
+    consumosTiempoReal:{tarjetas:(src.consumosTiempoReal?.tarjetas&&src.consumosTiempoReal.tarjetas.length?src.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT()).map(t=>({...t,id:uid(),manual:0}))},
   };
 };
 
@@ -250,6 +260,35 @@ function App(){
   const data=useMemo(()=>{if(allData[pk])return allData[pk];const s=findSource(allData,pk);return s?templateFromPeriod(s):emptyPeriod()},[allData,pk]);
   const update=useCallback(fn=>{setAllData(prev=>{let cur=prev[pk]||(findSource(prev,pk)?templateFromPeriod(findSource(prev,pk)):emptyPeriod());const next=fn(JSON.parse(JSON.stringify(cur)));writePeriod(pk,next);return{...prev,[pk]:next}});setSF(true);setTimeout(()=>setSF(false),800)},[pk,setAllData,writePeriod]);
 
+  const[autoTotals,setAutoTotals]=useState({});
+  const[autoUnmatched,setAutoUnmatched]=useState(0);
+  const[syncing,setSyncing]=useState(false);
+  const[lastSync,setLastSync]=useState(null);
+  const loadAutoTotals=useCallback(async()=>{
+    try{
+      const[yy,mm]=pk.split("-").map(Number);
+      const start=`${pk}-01`;
+      const endD=new Date(yy,mm,1);
+      const end=`${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-01`;
+      const{data:rows,error}=await supabase.from("consumos_personales").select("card_last4,amount,status").eq("classification","personal").gte("date_created",start).lt("date_created",end);
+      if(error)throw error;
+      const totals={};let unmatched=0;
+      (rows||[]).forEach(r=>{if((r.status||"approved")!=="approved")return;const l4=(r.card_last4||"").trim();if(l4)totals[l4]=(totals[l4]||0)+Number(r.amount||0);else unmatched+=Number(r.amount||0)});
+      setAutoTotals(totals);setAutoUnmatched(unmatched);
+    }catch(e){console.error("Error cargando consumos automáticos:",e)}
+  },[pk]);
+  useEffect(()=>{loadAutoTotals()},[loadAutoTotals]);
+  const runSyncNow=async()=>{
+    setSyncing(true);
+    try{
+      const{error}=await supabase.functions.invoke("trigger-sync-mp",{body:{}});
+      if(error)throw error;
+      setLastSync(new Date());
+      await loadAutoTotals();
+    }catch(e){alert("Error al sincronizar: "+e.message)}
+    setSyncing(false);
+  };
+
   const uploadBg=async(file)=>{if(!file)return;setBgUploading(true);try{const path=`${pk}/__bg__${file.name}`;await supabase.storage.from(BUCKET).upload(path,file,{upsert:true});update(d=>{d.bgPath=path;delete d.bgImage;return d});}catch(e){alert("Error al subir el fondo: "+e.message)}setBgUploading(false)};
   const removeBg=async()=>{try{if(data.bgPath)await supabase.storage.from(BUCKET).remove([data.bgPath])}catch(e){}update(d=>{d.bgImage="";d.bgPath="";return d})};
   const[bgUrl,setBgUrl]=useState("");
@@ -327,7 +366,7 @@ function App(){
   const toggleCard=id=>setEC(p=>({...p,[id]:!p[id]}));
   const isNew=!allData[pk];
 
-  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
+  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",consumosTiempoReal:"Consumos en Tiempo Real",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
 
   const renderSection=(key)=>{
     switch(key){
@@ -399,6 +438,39 @@ function App(){
           </div>
         </div>}</Card>})}
     </div>;
+
+    case "consumosTiempoReal": {
+      const tarjetas=(data.consumosTiempoReal&&data.consumosTiempoReal.tarjetas&&data.consumosTiempoReal.tarjetas.length)?data.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT();
+      const rows=tarjetas.map(t=>{const auto=autoTotals[(t.last4||"").trim()]||0;const usaAuto=!!(t.automatizada&&t.last4);const totalTarjeta=usaAuto?auto:(t.manual||0);const diff=usaAuto?(t.manual||0)-auto:null;return{...t,auto,totalTarjeta,diff,usaAuto}});
+      const totalMes=rows.reduce((s,r)=>s+r.totalTarjeta,0);
+      return <Card key={key}>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-2"><Grip/><div className="section-grip"><ST icon={I.creditCard} title="Consumos en Tiempo Real" sub="Automático (Mercado Pago + notificaciones Galicia) + carga manual"/></div></div>
+          <button disabled={syncing} className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition shrink-0 ${syncing?"bg-slate-100 text-slate-400":"bg-blue-600 text-white hover:bg-blue-700"}`} onClick={runSyncNow}>{I.download({className:"w-3.5 h-3.5"})} {syncing?"Sincronizando...":"Sincronizar ahora"}</button>
+        </div>
+        <div className="flex gap-2 mb-3 flex-wrap">
+          <Badge color="slate">Total del mes: {fmtARS(totalMes)}</Badge>
+          {autoUnmatched>0&&<Badge color="amber">Sin asignar a ninguna tarjeta: {fmtARS(autoUnmatched)}</Badge>}
+          {lastSync&&<Badge color="green">Última sync manual: {lastSync.toLocaleTimeString("es-AR")}</Badge>}
+        </div>
+        <div className="space-y-2">{rows.map((t,idx)=><div key={t.id} className="border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <TI value={t.nombre} placeholder="Nombre de la tarjeta" className="flex-1 min-w-[140px]" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].nombre=v;return d})}/>
+            <TI value={t.last4} placeholder="Últ. 4" style={{width:"4.5rem"}} onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].last4=v.replace(/[^0-9]/g,"").slice(0,4);return d})}/>
+            <button className={`text-xs px-2 py-1 rounded-lg border transition shrink-0 ${t.automatizada?"bg-emerald-50 border-emerald-300 text-emerald-600":"bg-slate-50 border-slate-200 text-slate-400"}`} title="Si está activo, el total automático es el que entra al total del mes; si no, entra el manual" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].automatizada=!d.consumosTiempoReal.tarjetas[idx].automatizada;return d})}>{t.automatizada?"Automatizada":"Manual"}</button>
+            <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas=d.consumosTiempoReal.tarjetas.filter((_,i)=>i!==idx);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="text-xs text-slate-500">Automático: <span className="font-medium text-slate-700">{fmtARS(t.auto)}</span></div>
+            <div className="flex items-center gap-1"><span className="text-xs text-slate-500">Manual:</span><NI value={t.manual} className="w-28" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].manual=v;return d})}/></div>
+            {t.diff!==null&&<Badge color={Math.abs(t.diff)<1?"green":"amber"}>Diferencia: {fmtARS(t.diff)}</Badge>}
+            <Badge color="slate">Entra al total: {fmtARS(t.totalTarjeta)}</Badge>
+          </div>
+        </div>)}</div>
+        <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:[]};d.consumosTiempoReal.tarjetas.push({id:uid(),nombre:"Nueva tarjeta",last4:"",automatizada:false,manual:0});return d})}>{I.plus({className:"w-4 h-4"})} Agregar tarjeta</button>
+        <p className="text-xs text-slate-400 mt-2">Automatizadas: Mercado Pago (QR/checkout) + notificaciones de Banco Galicia, filtradas por los últimos 4 dígitos. Para las que no tienen automático (BBVA, o cualquier banco nuevo), el campo Manual es el que entra al total del mes.</p>
+      </Card>;
+    }
 
     case "allowanceEvelyn": return <Card key={key}><div className="flex items-center gap-2"><Grip/><div className="section-grip flex-1"><ST icon={I.banknote} title="Mensualidad Evelyn" sub="Control de mensualidad y descuentos"/></div></div>
       <div className="mb-3"><label className="text-xs font-medium text-slate-500 mb-1 block">Total Mensualidad</label><NI value={alEve.total} className="max-w-xs" onChange={v=>update(d=>{if(!d.allowanceEvelyn)d.allowanceEvelyn={total:0,deductions:[]};d.allowanceEvelyn.total=v;return d})}/></div>
