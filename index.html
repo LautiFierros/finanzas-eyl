@@ -285,6 +285,17 @@ function App(){
     }catch(e){console.error("Error cargando consumos automáticos:",e)}
   },[pk]);
   useEffect(()=>{loadAutoMovs()},[loadAutoMovs]);
+  const[cuotasPorTarjeta,setCuotasPorTarjeta]=useState({});
+  const loadCuotas=useCallback(async()=>{
+    try{
+      const{data:rows,error}=await supabase.from("card_statements").select("card_last4,cuotas,updated_at").not("card_last4","is",null).order("updated_at",{ascending:false});
+      if(error)throw error;
+      const byCard={};
+      (rows||[]).forEach(r=>{const l4=(r.card_last4||"").trim();if(l4&&!byCard[l4])byCard[l4]=r.cuotas||[]});
+      setCuotasPorTarjeta(byCard);
+    }catch(e){console.error("Error cargando cuotas:",e)}
+  },[]);
+  useEffect(()=>{loadCuotas()},[loadCuotas]);
   const runSyncNow=async()=>{
     setSyncing(true);
     try{
@@ -454,10 +465,12 @@ function App(){
         const autoTotal=autos.reduce((s,m)=>s+m.monto,0);
         const manuales=t.manuales||[];
         const manualTotal=manuales.reduce((s,m)=>s+(m.monto||0),0);
-        const total=autoTotal+manualTotal;
+        const cuotasArr=cuotasPorTarjeta[(t.last4||"").trim()]||[];
+        const cuotaMes=(cuotasArr.find(c=>c.mes===pk)||{}).monto||0;
+        const total=autoTotal+manualTotal+cuotaMes;
         const limite=t.limite||0;
         const disponible=limite>0?limite-total:null;
-        return{...t,autos,autoTotal,manuales,manualTotal,total,limite,disponible};
+        return{...t,autos,autoTotal,manuales,manualTotal,cuotasArr,cuotaMes,total,limite,disponible};
       });
       const totalMes=rows.reduce((s,r)=>s+r.total,0);
       const limiteTotal=rows.reduce((s,r)=>s+(r.limite||0),0);
@@ -487,8 +500,13 @@ function App(){
           {exp&&<div className="mt-3 space-y-3">
             <div className="flex items-center gap-3 flex-wrap text-xs text-slate-500">
               <span>Automático: <span className="font-medium text-slate-700">{fmtARS(t.autoTotal)}</span></span>
+              <span>Cuota del mes: <span className="font-medium text-slate-700">{fmtARS(t.cuotaMes)}</span></span>
               <span>Manual: <span className="font-medium text-slate-700">{fmtARS(t.manualTotal)}</span></span>
             </div>
+            {t.cuotasArr.length>0&&<div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Cuotas a vencer (del último resumen leído)</label>
+              <div className="flex gap-2 flex-wrap">{t.cuotasArr.map(c=><Badge key={c.mes} color={c.mes===pk?"blue":"slate"}>{c.mes}: {fmtARS(c.monto)}</Badge>)}</div>
+            </div>}
             {t.autos.length>0&&<div>
               <label className="text-xs font-medium text-slate-500 mb-1 block">Consumos identificados automáticamente</label>
               <div className="max-h-40 overflow-y-auto space-y-1 bg-slate-50 rounded-lg p-2">{t.autos.map(m=><div key={m.id} className="flex items-center gap-2 text-xs py-0.5"><span className="text-slate-400 shrink-0 w-16">{new Date(m.fecha).toLocaleDateString("es-AR")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}</div>
