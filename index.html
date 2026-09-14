@@ -121,13 +121,13 @@ const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto",
 const LOCAL_KEY="gestion_financiera_ev_lau_cache";
 const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosTiempoReal","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
 const DEFAULT_TARJETAS_RT=()=>[
-  {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",limite:0,manuales:[]},
-  {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",limite:0,manuales:[]},
-  {id:uid(),nombre:"Visa Galicia 3110",last4:"",limite:0,manuales:[]},
-  {id:uid(),nombre:"Mastercard Galicia Internacional",last4:"",limite:0,manuales:[]},
-  {id:uid(),nombre:"Mercado Pago (tarjeta virtual)",last4:"",limite:0,manuales:[]},
-  {id:uid(),nombre:"BBVA Visa Gold (Eve)",last4:"",limite:0,manuales:[]},
-  {id:uid(),nombre:"BBVA Mastercard (Lauti)",last4:"",limite:0,manuales:[]},
+  {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",limite:0,manuales:[],manualUSD:0},
+  {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",limite:0,manuales:[],manualUSD:0},
+  {id:uid(),nombre:"Visa Galicia 3110",last4:"",limite:0,manuales:[],manualUSD:0},
+  {id:uid(),nombre:"Mastercard Galicia Internacional",last4:"",limite:0,manuales:[],manualUSD:0},
+  {id:uid(),nombre:"Mercado Pago (tarjeta virtual)",last4:"",limite:0,manuales:[],manualUSD:0},
+  {id:uid(),nombre:"BBVA Visa Gold (Eve)",last4:"",limite:0,manuales:[],manualUSD:0},
+  {id:uid(),nombre:"BBVA Mastercard (Lauti)",last4:"",limite:0,manuales:[],manualUSD:0},
 ];
 
 const emptyPeriod=()=>({
@@ -171,7 +171,7 @@ const templateFromPeriod=(src)=>{
     bankBalances:(src.bankBalances||[]).filter(b=>b.persist!==false).map(b=>({...b,id:uid(),amountARS:0,amountUSD:0})),
     notes:(src.notes||[]).filter(n=>n.persist!==false).map(n=>({...n,id:uid(),content:n.persist!==false?n.content:""})),
     files:[],
-    consumosTiempoReal:{tarjetas:(src.consumosTiempoReal?.tarjetas&&src.consumosTiempoReal.tarjetas.length?src.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT()).map(t=>({...t,id:uid(),manuales:[]}))},
+    consumosTiempoReal:{tarjetas:(src.consumosTiempoReal?.tarjetas&&src.consumosTiempoReal.tarjetas.length?src.consumosTiempoReal.tarjetas:DEFAULT_TARJETAS_RT()).map(t=>({...t,id:uid(),manuales:[],manualUSD:0}))},
   };
 };
 
@@ -482,6 +482,7 @@ function App(){
         </div>
         <div className="flex gap-2 mb-3 flex-wrap">
           <Badge color="slate">Total del mes: {fmtARS(totalMes)}</Badge>
+          {rows.some(r=>r.manualUSD)&&<Badge color="blue">Subtotal USD: {fmtUSD(rows.reduce((s,r)=>s+(r.manualUSD||0),0))}</Badge>}
           {limiteTotal>0&&<Badge color="blue">Límite total: {fmtARS(limiteTotal)}</Badge>}
           {limiteTotal>0&&<Badge color={(limiteTotal-totalMes)<0?"red":"green"}>Disponible total: {fmtARS(limiteTotal-totalMes)}</Badge>}
           {unmatchedTotal>0&&<Badge color="amber">Sin asignar a ninguna tarjeta: {fmtARS(unmatchedTotal)}</Badge>}
@@ -492,6 +493,7 @@ function App(){
             <TI value={t.nombre} placeholder="Nombre de la tarjeta" className="flex-1 min-w-[140px]" onClick={e=>e.stopPropagation()} onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].nombre=v;return d})}/>
             <TI value={t.last4} placeholder="Últ. 4" style={{width:"4.5rem"}} onClick={e=>e.stopPropagation()} onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].last4=v.replace(/[^0-9]/g,"").slice(0,4);return d})}/>
             <div onClick={e=>e.stopPropagation()} className="w-32 shrink-0"><NI value={t.limite} placeholder="Límite" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].limite=v;return d})}/></div>
+            <div onClick={e=>e.stopPropagation()} className="w-24 shrink-0 flex items-center gap-1"><span className="text-xs text-slate-400">US$</span><NI value={t.manualUSD||0} placeholder="USD" onChange={v=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas[idx].manualUSD=v;return d})}/></div>
             <Badge color="slate">Total: {fmtARS(t.total)}</Badge>
             {t.limite>0&&<Badge color={t.disponible<0?"red":"green"}>Disp: {fmtARS(t.disponible)}</Badge>}
             <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={e=>{e.stopPropagation();update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas=d.consumosTiempoReal.tarjetas.filter((_,i)=>i!==idx);return d})}}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
