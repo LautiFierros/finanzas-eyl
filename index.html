@@ -575,23 +575,28 @@ function App(){
             <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={e=>{e.stopPropagation();if(!confirm(`¿Borrar la tarjeta "${t.nombre}"? Esta acción no se puede deshacer.`))return;update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};d.consumosTiempoReal.tarjetas=d.consumosTiempoReal.tarjetas.filter((_,i)=>i!==idx);return d})}}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
             {exp?I.chevUp({className:"w-4 h-4 text-slate-400"}):I.chevDown({className:"w-4 h-4 text-slate-400"})}
           </div>
-          {exp&&<div className="mt-3">
-            <table className="w-full text-xs border border-slate-200 rounded-lg overflow-hidden" style={{tableLayout:"fixed"}}>
-              <thead><tr className="bg-slate-50 text-slate-500"><th className="text-left font-medium px-2 py-1 w-16 sm:w-20">Fecha</th><th className="text-left font-medium px-2 py-1">Detalle</th><th className="text-center font-medium px-2 py-1 w-14">Cuota</th><th className="text-right font-medium px-2 py-1 w-24">Monto</th><th className="w-6"></th></tr></thead>
-              <tbody>
-                {t.cuotasArr.map((c,cIdx)=><tr key={"cuota"+cIdx} className="border-t border-slate-100 bg-blue-50"><td className="px-2 py-1 text-slate-500 whitespace-nowrap">{c.fecha?c.fecha.split("-").reverse().join("/"):"—"}</td><td className="px-2 py-1 text-slate-600 truncate max-w-[1px]" title={c.detalle}>{c.detalle}</td><td className="px-2 py-1 text-center text-slate-500">{c.cuota_actual}/{c.cuota_total}</td><td className="px-2 py-1 text-right font-medium text-slate-700 whitespace-nowrap">{fmtARS(c.monto)}</td><td></td></tr>)}
-                {t.autos.map(m=><tr key={m.id} className="border-t border-slate-100"><td className="px-2 py-1 text-slate-500 whitespace-nowrap">{new Date(m.fecha).toLocaleDateString("es-AR")}</td><td className="px-2 py-1 text-slate-600 truncate max-w-[1px]" title={m.desc}>{m.desc}</td><td className="px-2 py-1 text-center text-slate-500">{m.cuota}</td><td className="px-2 py-1 text-right font-medium text-slate-700 whitespace-nowrap">{fmtARS(m.monto)}</td><td></td></tr>)}
-                {t.manuales.map((m,mIdx)=><tr key={m.id} className="border-t border-slate-100 bg-amber-50">
-                  <td className="px-1 py-0.5"><input type="date" value={m.fecha||""} className="text-xs border border-slate-200 rounded-lg py-1.5 px-1.5 bg-white w-full" onChange={e=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].fecha=e.target.value;return d})}/></td>
-                  <td className="px-1 py-0.5"><TI value={m.desc} placeholder="Descripción" className="w-full" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].desc=v;return d})}/></td>
-                  <td className="px-1 py-0.5"><TI value={m.cuota||""} placeholder="x/x" className="w-full text-center" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].cuota=v;return d})}/></td>
-                  <td className="px-1 py-0.5"><NI value={m.monto} className="w-full" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].monto=v;return d})}/></td>
-                  <td className="px-1 py-0.5"><button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>{if(!confirm("¿Borrar este consumo cargado a mano?"))return;update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales=d.consumosTiempoReal.tarjetas[idx].manuales.filter((_,j)=>j!==mIdx);return d})}}>{I.trash({className:"w-4 h-4 text-red-400"})}</button></td>
-                </tr>)}
-              </tbody>
-            </table>
-            <button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};if(!d.consumosTiempoReal.tarjetas[idx].manuales)d.consumosTiempoReal.tarjetas[idx].manuales=[];d.consumosTiempoReal.tarjetas[idx].manuales.push({id:uid(),fecha:new Date().toISOString().slice(0,10),desc:"",cuota:"",monto:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar consumo manual</button>
+          {exp&&<div className="mt-3 border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
+            {t.cuotasArr.map((c,cIdx)=><div key={"cuota"+cIdx} className="bg-blue-50 px-2.5 py-2">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-0.5"><span>{c.fecha?c.fecha.split("-").reverse().join("/"):"—"} · Cuota {c.cuota_actual}/{c.cuota_total}</span><span className="font-semibold text-slate-700">{fmtARS(c.monto)}</span></div>
+              <div className="text-sm text-slate-700 break-words">{c.detalle}</div>
+            </div>)}
+            {t.autos.map(m=><div key={m.id} className="px-2.5 py-2">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-0.5"><span>{new Date(m.fecha).toLocaleDateString("es-AR")}{m.cuota&&m.cuota!=="—"?` · ${m.cuota}`:""}</span><span className="font-semibold text-slate-700">{fmtARS(m.monto)}</span></div>
+              <div className="text-sm text-slate-600 break-words">{m.desc}</div>
+            </div>)}
+            {t.manuales.map((m,mIdx)=><div key={m.id} className="bg-amber-50 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <input type="date" value={m.fecha||""} className="text-xs border border-slate-200 rounded-lg py-1.5 px-1.5 bg-white shrink-0" onChange={e=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].fecha=e.target.value;return d})}/>
+                <TI value={m.cuota||""} placeholder="x/x" className="w-14 text-center shrink-0" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].cuota=v;return d})}/>
+                <div className="flex-1"/>
+                <NI value={m.monto} className="w-28 shrink-0" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].monto=v;return d})}/>
+                <button className="p-1 hover:bg-red-50 rounded-lg shrink-0" onClick={()=>{if(!confirm("¿Borrar este consumo cargado a mano?"))return;update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales=d.consumosTiempoReal.tarjetas[idx].manuales.filter((_,j)=>j!==mIdx);return d})}}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
+              </div>
+              <TI value={m.desc} placeholder="Descripción" className="w-full" onChange={v=>update(d=>{d.consumosTiempoReal.tarjetas[idx].manuales[mIdx].desc=v;return d})}/>
+            </div>)}
           </div>}
+          {exp&&t.autos.length===0&&t.cuotasArr.length===0&&t.manuales.length===0&&<p className="text-xs text-slate-400 mt-2">Sin movimientos todavía en esta tarjeta.</p>}
+          {exp&&<button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};if(!d.consumosTiempoReal.tarjetas[idx].manuales)d.consumosTiempoReal.tarjetas[idx].manuales=[];d.consumosTiempoReal.tarjetas[idx].manuales.push({id:uid(),fecha:new Date().toISOString().slice(0,10),desc:"",cuota:"",monto:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar consumo manual</button>}
         </div>})}</div>
         {autoUnmatched.length>0&&<div className="mt-3">
           <label className="text-xs font-medium text-amber-600 mb-1 block">Consumos automáticos sin tarjeta asignada (completá el "Últ. 4" que corresponda)</label>
