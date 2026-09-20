@@ -475,12 +475,16 @@ function App(){
         return{...t,autoTotalD,manualTotalD,cuotaMesD,totalD,limiteD,pctD};
       });
       const totalMesD=rowsD.reduce((s,r)=>s+r.totalD,0);
+      const totalGeneralD=totalMesD+totalExpC;
       const limiteTotalD=rowsD.reduce((s,r)=>s+(r.limiteD||0),0);
       const nowD=new Date();
       const esMesActual=pk===`${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,"0")}`;
       const diasEnMes=new Date(year,month+1,0).getDate();
       const diaHoy=esMesActual?nowD.getDate():diasEnMes;
-      const proyeccionD=(esMesActual&&diaHoy>0)?(totalMesD/diaHoy)*diasEnMes:null;
+      // La proyección solo extrapola el consumo con tarjeta (varía día a día); los egresos fijos/manuales
+      // (alquiler, transferencias, etc.) ya son un monto conocido del mes, se suman tal cual.
+      const proyeccionD=(esMesActual&&diaHoy>0)?(totalMesD/diaHoy)*diasEnMes+totalExpC:null;
+      const netoD=totalInc-totalGeneralD;
       const feedD=[];
       rowsD.forEach(t=>{
         (autoMovs[(t.last4||"").trim()]||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
@@ -489,13 +493,19 @@ function App(){
       feedD.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
       const feedTopD=feedD.slice(0,12);
       return <Card key={key}>
-        <div className="flex items-center gap-2 mb-4"><Grip/><div className="section-grip flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Vista general en tiempo real de todas las tarjetas"/></div></div>
+        <div className="flex items-center gap-2 mb-4"><Grip/><div className="section-grip flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Panorama en tiempo real: tarjetas + egresos fijos/manuales"/></div></div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Total del mes</div><div className="text-lg font-bold text-slate-800">{fmtARS(totalMesD)}</div></div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Total general del mes</div><div className="text-lg font-bold text-slate-800">{fmtARS(totalGeneralD)}</div></div>
           {proyeccionD!=null&&<div className="bg-blue-50 rounded-xl p-3"><div className="text-xs text-blue-600 mb-1">Proyección fin de mes</div><div className="text-lg font-bold text-blue-700">{fmtARS(proyeccionD)}</div></div>}
-          {limiteTotalD>0&&<div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Límite total</div><div className="text-lg font-bold text-slate-800">{fmtARS(limiteTotalD)}</div></div>}
-          {limiteTotalD>0&&<div className={`rounded-xl p-3 ${(limiteTotalD-totalMesD)<0?"bg-red-50":"bg-emerald-50"}`}><div className={`text-xs mb-1 ${(limiteTotalD-totalMesD)<0?"text-red-600":"text-emerald-600"}`}>Disponible total</div><div className={`text-lg font-bold ${(limiteTotalD-totalMesD)<0?"text-red-700":"text-emerald-700"}`}>{fmtARS(limiteTotalD-totalMesD)}</div></div>}
+          <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Ingresos</div><div className="text-lg font-bold text-slate-800">{fmtARS(totalInc)}</div></div>
+          <div className={`rounded-xl p-3 ${netoD<0?"bg-red-50":"bg-emerald-50"}`}><div className={`text-xs mb-1 ${netoD<0?"text-red-600":"text-emerald-600"}`}>Neto (ingresos − egresos)</div><div className={`text-lg font-bold ${netoD<0?"text-red-700":"text-emerald-700"}`}>{fmtARS(netoD)}</div></div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Consumo con tarjeta</div><div className="text-base font-semibold text-slate-700">{fmtARS(totalMesD)}</div></div>
+          <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Egresos fijos/manuales</div><div className="text-base font-semibold text-slate-700">{fmtARS(totalExpC)}</div></div>
+          {limiteTotalD>0&&<div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Límite total tarjetas</div><div className="text-base font-semibold text-slate-700">{fmtARS(limiteTotalD)}</div></div>}
+          {limiteTotalD>0&&<div className={`rounded-xl p-3 ${(limiteTotalD-totalMesD)<0?"bg-red-50":"bg-slate-50"}`}><div className="text-xs text-slate-500 mb-1">Disponible tarjetas</div><div className="text-base font-semibold text-slate-700">{fmtARS(limiteTotalD-totalMesD)}</div></div>}
         </div>
 
         <label className="text-xs font-medium text-slate-500 mb-2 block">Consumo por tarjeta</label>
