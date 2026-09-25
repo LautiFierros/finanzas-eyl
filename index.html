@@ -555,7 +555,7 @@ function App(){
         <label className="text-xs font-medium text-slate-500 mb-2 block">Últimos movimientos</label>
         <div className="max-h-64 overflow-y-auto space-y-1">
           {feedTopD.length===0&&<div className="text-xs text-slate-400">Sin movimientos todavía este mes.</div>}
-          {feedTopD.map((m,i)=><div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 last:border-0"><span className="text-slate-400 shrink-0 w-14">{(m.fecha||"").slice(0,10).split("-").reverse().join("/")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="text-slate-400 shrink-0 hidden sm:inline">{m.tarjeta}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}
+          {feedTopD.map((m,i)=><div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 last:border-0"><span className="text-slate-400 shrink-0 w-28">{(m.fecha||"").length>10?new Date(m.fecha).toLocaleString("es-AR",{timeZone:"America/Argentina/Buenos_Aires",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}):(m.fecha||"").slice(0,10).split("-").reverse().join("/")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="text-slate-400 shrink-0 hidden sm:inline">{m.tarjeta}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}
         </div>
       </Card>;
     }
