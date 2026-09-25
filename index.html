@@ -119,7 +119,7 @@ const gcalDueUrl=(card,authuser,src)=>{if(!card.dueDate)return"#";const s=card.d
 
 const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const LOCAL_KEY="gestion_financiera_ev_lau_cache";
-const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosDashboard","consumosTiempoReal","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
+const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosDashboard","asignacion","consumosTiempoReal","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","savings","bankBalances","notes","files"];
 const DEFAULT_TARJETAS_RT=()=>[
   {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",limite:0,manuales:[],manualUSD:0},
   {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",limite:0,manuales:[],manualUSD:0},
@@ -272,7 +272,7 @@ function App(){
       const start=`${pk}-01`;
       const endD=new Date(yy,mm,1);
       const end=`${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-01`;
-      const{data:rowsQ,error}=await supabase.from("consumos_personales").select("source_id,date_created,description,amount,card_last4,status,payment_method_id,raw").eq("classification","personal").gte("date_created",start).lt("date_created",end).order("date_created",{ascending:false});
+      const{data:rowsQ,error}=await supabase.from("consumos_personales").select("source_id,date_created,description,amount,card_last4,status,payment_method_id,raw").eq("asignacion","pareja").gte("date_created",start).lt("date_created",end).order("date_created",{ascending:false});
       if(error)throw error;
       const byCard={};const unmatched=[];
       (rowsQ||[]).forEach(r=>{
@@ -287,6 +287,32 @@ function App(){
     }catch(e){console.error("Error cargando consumos automáticos:",e)}
   },[pk]);
   useEffect(()=>{loadAutoMovs()},[loadAutoMovs]);
+  // Asignación de movimientos: pareja / CORAZ / excluido / pendiente
+  const[asigRows,setAsigRows]=useState([]);
+  const[asigVerTodos,setAsigVerTodos]=useState(false);
+  const[asigRecordar,setAsigRecordar]=useState({});
+  const[asigEtiq,setAsigEtiq]=useState({});
+  const[asigBusy,setAsigBusy]=useState(null);
+  const loadAsig=useCallback(async()=>{
+    try{
+      const[yy,mm]=pk.split("-").map(Number);
+      const endD=new Date(yy,mm,1);
+      const end=`${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-01`;
+      const{data:rows,error}=await supabase.from("consumos_personales").select("id,source,date_created,description,amount,card_last4,card_holder,payment_type_id,asignacion,asignado_por,motivo,contraparte").gte("date_created",`${pk}-01`).lt("date_created",end).order("date_created",{ascending:false});
+      if(error)throw error;
+      setAsigRows(rows||[]);
+    }catch(e){console.error("Error cargando asignaciones:",e)}
+  },[pk]);
+  useEffect(()=>{loadAsig()},[loadAsig]);
+  const asignar=async(row,a)=>{
+    setAsigBusy(row.id);
+    try{
+      const{error}=await supabase.rpc("asignar_consumo",{p_id:row.id,p_asignacion:a,p_recordar:!!asigRecordar[row.id],p_etiqueta:(asigEtiq[row.id]||"").trim()||null});
+      if(error)throw error;
+      await Promise.all([loadAsig(),loadAutoMovs()]);
+    }catch(e){alert("Error al asignar: "+e.message)}
+    setAsigBusy(null);
+  };
   const[cuotasPorTarjeta,setCuotasPorTarjeta]=useState({});
   const loadCuotas=useCallback(async()=>{
     try{
@@ -304,7 +330,7 @@ function App(){
       const{error}=await supabase.functions.invoke("trigger-sync-mp",{body:{}});
       if(error)throw error;
       setLastSync(new Date());
-      await loadAutoMovs();
+      await Promise.all([loadAutoMovs(),loadAsig()]);
     }catch(e){alert("Error al sincronizar: "+e.message)}
     setSyncing(false);
   };
@@ -387,7 +413,7 @@ function App(){
   const toggleRT=id=>setERT(p=>({...p,[id]:!p[id]}));
   const isNew=!allData[pk];
 
-  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",consumosDashboard:"Dashboard Consumos",consumosTiempoReal:"Consumos en Tiempo Real",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
+  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",consumosDashboard:"Dashboard Consumos",asignacion:"Asignar Movimientos",consumosTiempoReal:"Consumos en Tiempo Real",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
 
   const renderSection=(key)=>{
     switch(key){
@@ -531,6 +557,43 @@ function App(){
           {feedTopD.length===0&&<div className="text-xs text-slate-400">Sin movimientos todavía este mes.</div>}
           {feedTopD.map((m,i)=><div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 last:border-0"><span className="text-slate-400 shrink-0 w-14">{(m.fecha||"").slice(0,10).split("-").reverse().join("/")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="text-slate-400 shrink-0 hidden sm:inline">{m.tarjeta}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}
         </div>
+      </Card>;
+    }
+
+    case "asignacion": {
+      const ASIG={pareja:{l:"Pareja",c:"green",b:"bg-emerald-600 hover:bg-emerald-700"},coraz:{l:"CORAZ",c:"blue",b:"bg-blue-600 hover:bg-blue-700"},excluido:{l:"Excluir",c:"slate",b:"bg-slate-500 hover:bg-slate-600"},pendiente:{l:"Pendiente",c:"amber",b:""}};
+      const tot={pareja:0,coraz:0,excluido:0,pendiente:0};const cnt={pareja:0,coraz:0,excluido:0,pendiente:0};
+      asigRows.forEach(r=>{const k=r.asignacion||"pendiente";tot[k]+=Number(r.amount||0);cnt[k]++});
+      const lista=asigVerTodos?asigRows:asigRows.filter(r=>r.asignacion==="pendiente");
+      const srcLbl=r=>r.source==="mercado_pago"?(r.card_last4?`MP · tarj. ${r.card_last4}`:"MP · saldo"):(r.source==="notificacion_galicia"?`Galicia${r.card_last4?" · "+r.card_last4:""}`:r.source);
+      return <Card key={key}>
+        <div className="flex items-center gap-2"><Grip section/><div className=" flex-1"><ST icon={I.zap} title="Asignar Movimientos" sub="Todo lo que sale: vos decidís si es de la pareja, de CORAZ o se excluye"/></div></div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          {["pendiente","pareja","coraz","excluido"].map(k=><div key={k} className={`rounded-xl p-3 ${k==="pendiente"&&cnt[k]>0?"bg-amber-50":"bg-slate-50"}`}><div className="text-xs text-slate-500 mb-1">{k==="excluido"?"Excluido":ASIG[k].l} · {cnt[k]}</div><div className="text-base font-semibold text-slate-800">{fmtARS(tot[k])}</div></div>)}
+        </div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-slate-500">{asigVerTodos?"Todos los movimientos del mes":`Por asignar (${cnt.pendiente})`}</label>
+          <button className="text-xs text-blue-600 font-medium" onClick={()=>setAsigVerTodos(v=>!v)}>{asigVerTodos?"Ver solo pendientes":"Ver todos / reasignar"}</button>
+        </div>
+        {lista.length===0&&<div className="text-xs text-slate-400 py-2">{asigVerTodos?"Sin movimientos este mes.":"Nada pendiente. 👌"}</div>}
+        <div className="space-y-2 max-h-[32rem] overflow-y-auto">{lista.map(r=>{
+          const a=r.asignacion||"pendiente";
+          return <div key={r.id} className="border border-slate-200 rounded-lg p-2.5">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-400 shrink-0">{(r.date_created||"").slice(0,10).split("-").reverse().join("/")}</span>
+              <span className="text-slate-400 shrink-0">{srcLbl(r)}</span>
+              <span className="flex-1"/>
+              <Badge color={ASIG[a].c}>{a==="excluido"?"Excluido":ASIG[a].l}</Badge>
+              <span className="font-semibold text-slate-800 shrink-0">{fmtARS(r.amount)}</span>
+            </div>
+            <div className="text-sm text-slate-700 mt-1 break-words">{r.description||"(sin descripción)"}</div>
+            <div className="text-xs text-slate-400 mt-0.5 break-words">{r.motivo}{r.contraparte&&r.contraparte.startsWith("mp:")?` · cuenta ${r.contraparte.slice(3)}`:""}</div>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {["pareja","coraz","excluido"].map(k=><button key={k} disabled={asigBusy===r.id||a===k} onClick={()=>asignar(r,k)} className={`text-xs text-white font-medium px-3 py-1.5 rounded-lg ${ASIG[k].b} disabled:opacity-40`}>{ASIG[k].l}</button>)}
+              <label className="flex items-center gap-1 text-xs text-slate-500 ml-1"><input type="checkbox" checked={!!asigRecordar[r.id]} onChange={e=>setAsigRecordar(p=>({...p,[r.id]:e.target.checked}))}/>Recordar esta cuenta</label>
+              {asigRecordar[r.id]&&<input value={asigEtiq[r.id]||""} placeholder="¿Quién es? (ej: proveedor X)" className="text-xs border border-slate-200 rounded-lg py-1 px-2 flex-1 min-w-[140px]" onChange={e=>setAsigEtiq(p=>({...p,[r.id]:e.target.value}))}/>}
+            </div>
+          </div>})}</div>
       </Card>;
     }
 
