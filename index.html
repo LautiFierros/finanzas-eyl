@@ -523,7 +523,7 @@ function App(){
       rowsD.forEach(t=>{
         (autoMovs[(t.last4||"").trim()]||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
         (t.manuales||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
-                (cuotasPorTarjeta[(t.last4||"").trim()]||[]).filter(c=>(c.cuota_actual||0)<(c.cuota_total||0)).forEach(c=>feedD.push({fecha:`${pk}-01`,desc:`${c.detalle} · cuota ${(c.cuota_actual||0)+1}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
+                (cuotasPorTarjeta[(t.last4||"").trim()]||[]).filter(c=>(c.cuota_actual||0)<(c.cuota_total||0)).forEach(c=>feedD.push({fecha:c.fecha||`${pk}-01`,desc:`${c.detalle} · cuota ${(c.cuota_actual||0)+1}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
       });
       feedD.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
       const feedTopD=feedD;
