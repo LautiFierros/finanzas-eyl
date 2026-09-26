@@ -522,9 +522,9 @@ function App(){
       const feedD=[];
       rowsD.forEach(t=>{
         (autoMovs[(t.last4||"").trim()]||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
-        (t.manuales||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
-                 (cuotasPorTarjeta[(t.last4||"").trim()]||[]).forEach(c=>feedD.push({fecha:c.fecha||`${pk}-01`,desc:`${c.detalle} · cuota ${c.cuota_actual}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
-      feedD.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+                (t.manuales||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
+        (cuotasPorTarjeta[(t.last4||"").trim()]||[]).forEach(c=>feedD.push({fecha:c.fecha||`${pk}-01`,desc:`${c.detalle} · cuota ${c.cuota_actual}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
+      });
       const feedTopD=feedD;
       return <Card key={key}>
         <div className="flex items-center gap-2 mb-4"><Grip section/><div className=" flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Panorama en tiempo real: tarjetas + egresos fijos/manuales"/></div></div>
