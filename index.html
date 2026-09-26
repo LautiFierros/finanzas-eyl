@@ -135,6 +135,13 @@ const copyShot=async(elId,fileName)=>{
     return false;
   }
 };
+// Fecha local (Argentina) en YYYY-MM-DD. OJO: toISOString() da la fecha UTC y después de las 21hs ya es "mañana".
+const hoyLocal=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`};
+const ymd=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+// Lunes de las semanas que pertenecen al mes: una semana (lun-vie) es del mes en que cae su viernes.
+const lunesDelMes=(year,month)=>{const out=[];const d=new Date(year,month,1);while(d.getDay()!==5)d.setDate(d.getDate()+1);while(d.getMonth()===month){const l=new Date(d);l.setDate(l.getDate()-4);out.push(ymd(l));d.setDate(d.getDate()+7)}return out};
+const ddmm=(f)=>f?String(f).slice(0,10).split("-").reverse().slice(0,2).join("/"):"—";
+const semLbl=(w)=>w.desde?`Semana del ${ddmm(w.desde)}`:(w.label||"Semana");
 const fmtFecha=(f)=>f?String(f).slice(0,10).split("-").reverse().join("/"):"—";
 
 const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -175,7 +182,7 @@ const emptyPeriod=()=>({
   consumosTiempoReal:{tarjetas:DEFAULT_TARJETAS_RT()},
 });
 
-const templateFromPeriod=(src)=>{
+const templateFromPeriod=(src,pk)=>{
   if(!src)return emptyPeriod();
   return{
     dollarRate:0,
@@ -186,7 +193,7 @@ const templateFromPeriod=(src)=>{
     allowanceEvelyn:{total:0,deductions:(src.allowanceEvelyn?.deductions||[]).map(d=>({...d,id:uid(),amount:0}))},
     allowanceLautaro:{total:0,deductions:(src.allowanceLautaro?.deductions||[]).map(d=>({...d,id:uid(),amount:0}))},
     cleaning:{agreement:src.cleaning?.agreement||"",weeks:(src.cleaning?.weeks||[]).filter(w=>w.persist!==false).map(w=>({...w,id:uid(),paid:false}))},
-    viandas:{precioUnit:src.viandas?.precioUnit||0,nota:src.viandas?.nota||"",entregas:(src.viandas?.entregas||[]).filter(w=>w.persist!==false).map(w=>({...w,id:uid(),paid:false,paidAt:null,fecha:""}))},
+    viandas:(()=>{const prev=(src.viandas?.entregas||[]);const u=prev.length?(prev[prev.length-1].unidades||0):0;const [yy,mm]=(pk||"").split("-").map(Number);const lunes=pk?lunesDelMes(yy,mm-1):[];return{precioUnit:src.viandas?.precioUnit||0,nota:src.viandas?.nota||"",pagos:[],entregas:lunes.length?lunes.map(l=>({id:uid(),desde:l,unidades:u,paid:false,paidAt:null,fecha:"",pagoId:null,persist:true})):prev.filter(w=>w.persist!==false).map(w=>({...w,id:uid(),paid:false,paidAt:null,fecha:"",pagoId:null}))}})(),
     savings:{accounts:(src.savings?.accounts||[]).filter(a=>a.persist!==false).map(a=>({...a,id:uid()}))},
     cashBudget:{amountARS:0,note:src.cashBudget?.note||""},
     reimbursements:(src.reimbursements||[]).filter(r=>r.persist).map(r=>({...r,id:uid(),amount:0,status:"pending",receivedAt:null})),
@@ -281,8 +288,8 @@ function App(){
   const bgInputRef=useRef(null);
   const[bgUploading,setBgUploading]=useState(false);
 
-  const data=useMemo(()=>{if(allData[pk])return allData[pk];const s=findSource(allData,pk);return s?templateFromPeriod(s):emptyPeriod()},[allData,pk]);
-  const update=useCallback(fn=>{setAllData(prev=>{let cur=prev[pk]||(findSource(prev,pk)?templateFromPeriod(findSource(prev,pk)):emptyPeriod());const next=fn(JSON.parse(JSON.stringify(cur)));writePeriod(pk,next);return{...prev,[pk]:next}});setSF(true);setTimeout(()=>setSF(false),800)},[pk,setAllData,writePeriod]);
+  const data=useMemo(()=>{if(allData[pk])return allData[pk];const s=findSource(allData,pk);return s?templateFromPeriod(s,pk):emptyPeriod()},[allData,pk]);
+  const update=useCallback(fn=>{setAllData(prev=>{let cur=prev[pk]||(findSource(prev,pk)?templateFromPeriod(findSource(prev,pk),pk):emptyPeriod());const next=fn(JSON.parse(JSON.stringify(cur)));writePeriod(pk,next);return{...prev,[pk]:next}});setSF(true);setTimeout(()=>setSF(false),800)},[pk,setAllData,writePeriod]);
 
   const[autoMovs,setAutoMovs]=useState({});
   const[autoUnmatched,setAutoUnmatched]=useState([]);
@@ -427,6 +434,8 @@ function App(){
   const viPagado=(vi.entregas||[]).filter(w=>w.paid).reduce((s,w)=>s+(w.unidades||0)*(vi.precioUnit||0),0);
   const totalEgr=totalExpC+totalCards+clAll+viTotal+cashBudget;
   const [shotMsg,setShotMsg]=useState("");
+  const [viSel,setViSel]=useState({});
+  const [viFechaPago,setViFechaPago]=useState(hoyLocal());
   const doShot=async(elId,name)=>{setShotMsg("Generando…");const ok=await copyShot(elId,name);setShotMsg(ok?"¡Copiado! Pegalo en WhatsApp":"");setTimeout(()=>setShotMsg(""),3000)};
   const saldo=totalInc-totalEgr;
   const alEve=data.allowanceEvelyn||{total:0,deductions:[]};
@@ -689,7 +698,7 @@ function App(){
             </div>)}
           </div>}
           {exp&&t.autos.length===0&&t.cuotasArr.length===0&&t.manuales.length===0&&<p className="text-xs text-slate-400 mt-2">Sin movimientos todavía en esta tarjeta.</p>}
-          {exp&&<button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};if(!d.consumosTiempoReal.tarjetas[idx].manuales)d.consumosTiempoReal.tarjetas[idx].manuales=[];d.consumosTiempoReal.tarjetas[idx].manuales.push({id:uid(),fecha:new Date().toISOString().slice(0,10),desc:"",cuota:"",monto:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar consumo manual</button>}
+          {exp&&<button className="mt-2 flex items-center gap-1 text-xs text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.consumosTiempoReal)d.consumosTiempoReal={tarjetas:DEFAULT_TARJETAS_RT()};if(!d.consumosTiempoReal.tarjetas[idx].manuales)d.consumosTiempoReal.tarjetas[idx].manuales=[];d.consumosTiempoReal.tarjetas[idx].manuales.push({id:uid(),fecha:hoyLocal(),desc:"",cuota:"",monto:0});return d})}>{I.plus({className:"w-3.5 h-3.5"})} Agregar consumo manual</button>}
         </div>})}</div>
         {autoUnmatched.length>0&&<div className="mt-3">
           <label className="text-xs font-medium text-amber-600 mb-1 block">Consumos automáticos sin tarjeta asignada (completá el "Últ. 4" que corresponda)</label>
@@ -731,42 +740,84 @@ function App(){
       </div></div></Card>;
 
     case "viandas": {
-      const upd=fn=>update(d=>{if(!d.viandas)d.viandas={precioUnit:0,nota:"",entregas:[]};if(!d.viandas.entregas)d.viandas.entregas=[];fn(d.viandas);return d});
-      const ent=vi.entregas||[];
-      return <Card key={key}><div className="flex items-center gap-2"><Grip section/><div className=" flex-1"><ST icon={I.utensils} title="Cuenta Viandas" sub={`${MONTHS[month]} ${year}`}/></div></div>
+      const upd=fn=>update(d=>{if(!d.viandas)d.viandas={precioUnit:0,nota:"",entregas:[],pagos:[]};if(!d.viandas.entregas)d.viandas.entregas=[];if(!d.viandas.pagos)d.viandas.pagos=[];fn(d.viandas);return d});
+      const ent=(vi.entregas||[]).slice().sort((x,y)=>(x.desde||"").localeCompare(y.desde||""));
+      const pagos=(vi.pagos||[]).slice().sort((x,y)=>(x.fecha||"").localeCompare(y.fecha||""));
+      const pu=vi.precioUnit||0;
+      const selIds=ent.filter(w=>!w.paid&&viSel[w.id]).map(w=>w.id);
+      const selUnits=ent.filter(w=>selIds.includes(w.id)).reduce((s2,w)=>s2+(w.unidades||0),0);
+      const semanasTxt=(ws)=>{const l=ws.map(w=>w.desde?ddmm(w.desde):semLbl(w));return l.length>1?`${l.slice(0,-1).join(", ")} y ${l[l.length-1]}`:(l[0]||"")};
+      const pagoWeeks=(pg)=>(vi.entregas||[]).filter(w=>(pg.semanas||[]).includes(w.id)).sort((x,y)=>(x.desde||"").localeCompare(y.desde||""));
+      const concepto=(pg)=>`Viandas sem ${semanasTxt(pagoWeeks(pg))}`;
+      const registrarPago=()=>{if(!selIds.length)return;const id=uid();const f=viFechaPago||hoyLocal();upd(x=>{const ws=x.entregas.filter(w=>selIds.includes(w.id));const unid=ws.reduce((s2,w)=>s2+(w.unidades||0),0);x.pagos.push({id,fecha:f,semanas:selIds,unidades:unid,precioUnit:x.precioUnit||0,monto:unid*(x.precioUnit||0)});ws.forEach(w=>{w.paid=true;w.fecha=f;w.paidAt=new Date().toISOString();w.pagoId=id})});setViSel({})};
+      const anularPago=(pid)=>{if(!confirm("¿Anular este pago? Las semanas vuelven a pendiente."))return;upd(x=>{x.pagos=x.pagos.filter(p2=>p2.id!==pid);x.entregas.forEach(w=>{if(w.pagoId===pid){w.paid=false;w.fecha="";w.paidAt=null;w.pagoId=null}})})};
+      const generarSemanas=()=>upd(x=>{const u=x.entregas.length?(x.entregas[x.entregas.length-1].unidades||0):10;lunesDelMes(year,month).forEach(l=>{if(!x.entregas.some(w=>w.desde===l))x.entregas.push({id:uid(),desde:l,unidades:u,paid:false,paidAt:null,fecha:"",pagoId:null,persist:true})})});
+      const agregarSemana=()=>upd(x=>{const last=(x.entregas||[]).map(w=>w.desde).filter(Boolean).sort().pop();let nx="";if(last){const d0=new Date(last+"T12:00:00");d0.setDate(d0.getDate()+7);nx=ymd(d0)}x.entregas.push({id:uid(),desde:nx,unidades:x.entregas.length?(x.entregas[x.entregas.length-1].unidades||0):10,paid:false,paidAt:null,fecha:"",pagoId:null,persist:true})});
+      const copiarConcepto=async(pg)=>{try{await navigator.clipboard.writeText(concepto(pg));setShotMsg("Concepto copiado")}catch(e){prompt("Copiá el concepto:",concepto(pg))}setTimeout(()=>setShotMsg(""),2500)};
+      const GRID="grid grid-cols-[24px_1fr_64px_96px_28px] sm:grid-cols-[24px_1fr_80px_120px_130px_28px] gap-2";
+      return <Card key={key}><div className="flex items-center gap-2"><Grip section/><div className=" flex-1"><ST icon={I.utensils} title="Cuenta Viandas" sub={`${MONTHS[month]} ${year} · semanas de lunes a viernes`}/></div></div>
       <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-3 mb-4">
-        <div><label className="text-xs font-medium text-slate-500 mb-1 block">Precio por unidad</label><NI value={vi.precioUnit||0} onChange={v=>upd(x=>{x.precioUnit=v})}/></div>
-        <div><label className="text-xs font-medium text-slate-500 mb-1 block">Acuerdo / notas</label><TA value={vi.nota||""} placeholder="Ej: 10 viandas por semana, se paga los lunes por transferencia" onChange={v=>upd(x=>{x.nota=v})}/></div>
+        <div><label className="text-xs font-medium text-slate-500 mb-1 block">Precio por unidad</label><NI value={pu} onChange={v=>upd(x=>{x.precioUnit=v})}/></div>
+        <div><label className="text-xs font-medium text-slate-500 mb-1 block">Acuerdo / notas</label><TA value={vi.nota||""} placeholder="Ej: 10 viandas por semana, se paga de a 2 semanas" onChange={v=>upd(x=>{x.nota=v})}/></div>
       </div>
       <div className="space-y-2 mb-3">
-        <div className="grid grid-cols-[24px_1fr_70px_34px_28px] sm:grid-cols-[24px_1fr_130px_80px_110px_34px_28px] gap-2 text-xs font-medium text-slate-500 px-1"><span/><span>Semana</span><span className="hidden sm:block">Fecha de pago</span><span className="text-right">Unid.</span><span className="text-right hidden sm:block">Subtotal</span><span className="text-center">Pag.</span><span/></div>
-        {ent.map((w,i)=><div key={w.id} className="grid grid-cols-[24px_1fr_70px_34px_28px] sm:grid-cols-[24px_1fr_130px_80px_110px_34px_28px] gap-2 items-center">
-          <PT value={w.persist} onChange={()=>upd(x=>{x.entregas[i].persist=!x.entregas[i].persist})}/>
-          <div><TI value={w.label} placeholder={`Semana ${i+1}`} onChange={v=>upd(x=>{x.entregas[i].label=v})}/><div className="sm:hidden text-xs text-slate-400 mt-1 flex items-center gap-2"><input type="date" value={w.fecha||""} className="text-xs border border-slate-200 rounded-lg py-1 px-1.5 bg-slate-50" onChange={e=>upd(x=>{x.entregas[i].fecha=e.target.value})}/><span>{fmtARS((w.unidades||0)*(vi.precioUnit||0))}</span></div></div>
-          <input type="date" value={w.fecha||""} className="hidden sm:block text-sm border border-slate-200 rounded-lg py-1.5 px-2 bg-slate-50" onChange={e=>upd(x=>{x.entregas[i].fecha=e.target.value})}/>
+        <div className={`${GRID} text-xs font-medium text-slate-500 px-1`}><span/><span>Semana del (lunes)</span><span className="text-right">Unid.</span><span className="text-right hidden sm:block">Subtotal</span><span className="text-center">Estado</span><span/></div>
+        {ent.map(w=>{const i=(vi.entregas||[]).findIndex(z=>z.id===w.id);return <div key={w.id} className={`${GRID} items-center`}>
+          {w.paid?<span className="text-emerald-500 justify-self-center">{I.check({className:"w-4 h-4"})}</span>:<input type="checkbox" className="justify-self-center w-4 h-4" title="Incluir en el próximo pago" checked={!!viSel[w.id]} onChange={e=>setViSel(p2=>({...p2,[w.id]:e.target.checked}))}/>}
+          <input type="date" value={w.desde||""} className="text-sm border border-slate-200 rounded-lg py-1.5 px-2 bg-slate-50 w-full" onChange={e=>upd(x=>{x.entregas[i].desde=e.target.value})}/>
           <NI value={w.unidades||0} prefix="" placeholder="0" onChange={v=>upd(x=>{x.entregas[i].unidades=v})}/>
-          <span className="hidden sm:block text-right text-sm font-medium text-slate-700">{fmtARS((w.unidades||0)*(vi.precioUnit||0))}</span>
-          <button className={`p-1 rounded-md border transition justify-self-center ${w.paid?"bg-emerald-50 border-emerald-300 text-emerald-600":"bg-slate-50 border-slate-200 text-slate-300"}`} title={w.paid?(w.paidAt?`Abonada ${new Date(w.paidAt).toLocaleDateString("es-AR")}`:"Abonada"):"Pendiente"} onClick={()=>upd(x=>{const e=x.entregas[i];e.paid=!e.paid;e.paidAt=e.paid?new Date().toISOString():null;if(e.paid&&!e.fecha)e.fecha=new Date().toISOString().slice(0,10)})}>{w.paid?I.check({className:"w-3.5 h-3.5"}):<div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300"/>}</button>
-          <button className="p-0.5 hover:bg-red-50 rounded" onClick={()=>upd(x=>{x.entregas=x.entregas.filter((_,j)=>j!==i)})}>{I.trash({className:"w-3.5 h-3.5 text-red-400"})}</button>
-        </div>)}
+          <span className="hidden sm:block text-right text-sm font-medium text-slate-700">{fmtARS((w.unidades||0)*pu)}</span>
+          <span className={`text-xs text-center ${w.paid?"text-emerald-600":"text-amber-600"}`}>{w.paid?`Abonada ${ddmm(w.fecha)}`:"Pendiente"}</span>
+          <button className="p-0.5 hover:bg-red-50 rounded" title="Borrar semana" onClick={()=>{if(w.paid){alert("Esta semana está en un pago: anulá el pago primero.");return}upd(x=>{x.entregas=x.entregas.filter(z=>z.id!==w.id)})}}>{I.trash({className:"w-3.5 h-3.5 text-red-400"})}</button>
+        </div>})}
       </div>
-      <button className="mb-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>upd(x=>{const prev=x.entregas[x.entregas.length-1];x.entregas.push({id:uid(),label:`Semana ${x.entregas.length+1}`,fecha:"",unidades:prev?prev.unidades:0,paid:false,paidAt:null,persist:true})})}>{I.plus({className:"w-4 h-4"})} Agregar semana</button>
-      <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1">
-        <div className="flex justify-between"><span className="text-slate-500">Unidades del mes</span><span className="font-medium">{viUnits} × {fmtARS(vi.precioUnit)}</span></div>
+      <div className="flex flex-wrap gap-4 mb-3">
+        <button className="flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={generarSemanas}>{I.plus({className:"w-4 h-4"})} Generar semanas del mes</button>
+        <button className="flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={agregarSemana}>{I.plus({className:"w-4 h-4"})} Agregar semana</button>
+      </div>
+      {selIds.length>0&&<div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-slate-700">Pagar <b>{selIds.length}</b> semana(s) · {selUnits} unid. · <b>{fmtARS(selUnits*pu)}</b></span>
+        <span className="flex-1"/>
+        <label className="text-xs text-slate-500">Fecha de pago</label>
+        <input type="date" value={viFechaPago} className="text-sm border border-slate-200 rounded-lg py-1 px-2 bg-white" onChange={e=>setViFechaPago(e.target.value)}/>
+        <button className="text-sm text-white font-medium px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700" onClick={registrarPago}>Registrar pago</button>
+      </div>}
+      <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1 mb-4">
+        <div className="flex justify-between"><span className="text-slate-500">Unidades del mes</span><span className="font-medium">{viUnits} × {fmtARS(pu)}</span></div>
         <div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-700 font-semibold">Total del mes</span><span className="font-bold text-blue-700">{fmtARS(viTotal)}</span></div>
         <div className="flex justify-between"><span className="text-slate-500">Abonado</span><span className="font-medium text-emerald-600">{fmtARS(viPagado)}</span></div>
         <div className="flex justify-between"><span className="text-slate-500">Pendiente</span><span className="font-medium text-amber-600">{fmtARS(viTotal-viPagado)}</span></div>
-        <div className="flex justify-between"><span className="text-slate-500">Semanas abonadas</span><span className="font-medium">{ent.filter(w=>w.paid).length}/{ent.length}</span></div>
       </div>
-      <button className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 font-medium" onClick={()=>doShot("shot-viandas",`viandas-${pk}.png`)}>{I.camera({className:"w-4 h-4"})} Copiar detalle (imagen)</button>{shotMsg&&<span className="text-xs text-emerald-600 ml-2">{shotMsg}</span>}
-      <div style={{position:"absolute",left:"-9999px",top:0}}><div id="shot-viandas" style={{width:"420px",padding:"20px",background:"#fff",fontFamily:"var(--g)",color:"#1c2621"}}>
-        <div style={{fontSize:"18px",fontWeight:700}}>Viandas · {MONTHS[month]} {year}</div>
-        <div style={{fontSize:"12px",color:"#6c756f",margin:"4px 0 10px"}}>Precio por unidad: {fmtARS(vi.precioUnit)}{vi.nota?` · ${vi.nota}`:""}</div>
-        <table style={{width:"100%",fontSize:"13px",borderCollapse:"collapse"}}><thead><tr style={{color:"#6c756f",textAlign:"left"}}><th style={{padding:"4px 0"}}>Semana</th><th>Fecha pago</th><th style={{textAlign:"right"}}>Unid.</th><th style={{textAlign:"right"}}>Subtotal</th><th style={{textAlign:"center"}}>Estado</th></tr></thead>
-        <tbody>{ent.map(w=><tr key={w.id} style={{borderTop:"1px solid #e3ded1"}}><td style={{padding:"5px 0"}}>{w.label}</td><td>{fmtFecha(w.fecha)}</td><td style={{textAlign:"right"}}>{w.unidades||0}</td><td style={{textAlign:"right",fontWeight:600}}>{fmtARS((w.unidades||0)*(vi.precioUnit||0))}</td><td style={{textAlign:"center",color:w.paid?"#15803d":"#b45309"}}>{w.paid?"Abonada":"Pendiente"}</td></tr>)}</tbody></table>
-        <div style={{borderTop:"2px solid #17493a",marginTop:"8px",paddingTop:"8px",display:"flex",justifyContent:"space-between",fontWeight:700}}><span>Total ({viUnits} unid.)</span><span>{fmtARS(viTotal)}</span></div>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",color:"#6c756f",marginTop:"4px"}}><span>Abonado / Pendiente</span><span>{fmtARS(viPagado)} / {fmtARS(viTotal-viPagado)}</span></div>
-      </div></div>
+      <label className="text-xs font-medium text-slate-500 mb-2 block">Pagos del mes</label>
+      {pagos.length===0&&<p className="text-xs text-slate-400 mb-2">Todavía no registraste pagos. Tildá las semanas y tocá "Registrar pago".</p>}
+      <div className="space-y-2 mb-3">{pagos.map(pg=><div key={pg.id} className="border border-slate-200 rounded-lg p-2.5">
+        <div className="flex items-center gap-2 text-sm"><span className="font-medium text-slate-700 shrink-0">{fmtFecha(pg.fecha)}</span><span className="text-slate-500 flex-1">Semanas del {semanasTxt(pagoWeeks(pg))}</span><span className="font-semibold text-slate-800 shrink-0">{fmtARS(pg.monto)}</span></div>
+        <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs">
+          <button className="flex items-center gap-1 text-blue-600 font-medium" onClick={()=>doShot(`shot-pago-${pg.id}`,`viandas-pago-${pg.fecha}.png`)}>{I.camera({className:"w-3.5 h-3.5"})} Copiar comprobante</button>
+          <button className="text-blue-600 font-medium" onClick={()=>copiarConcepto(pg)}>Copiar concepto</button>
+          <span className="text-slate-400">"{concepto(pg)}"</span>
+          <span className="flex-1"/>
+          <button className="text-red-400" onClick={()=>anularPago(pg.id)}>Anular</button>
+        </div>
+      </div>)}</div>
+      <button className="flex items-center gap-1.5 text-sm text-blue-600 font-medium" onClick={()=>doShot("shot-viandas",`viandas-${pk}.png`)}>{I.camera({className:"w-4 h-4"})} Copiar detalle del mes (imagen)</button>{shotMsg&&<span className="text-xs text-emerald-600 ml-2">{shotMsg}</span>}
+      <div style={{position:"absolute",left:"-9999px",top:0}}>
+        {pagos.map(pg=>{const ws=pagoWeeks(pg);const ppu=pg.precioUnit||pu;return <div key={pg.id} id={`shot-pago-${pg.id}`} style={{width:"420px",padding:"20px",background:"#fff",fontFamily:"var(--g)",color:"#1c2621"}}>
+          <div style={{fontSize:"18px",fontWeight:700}}>Pago viandas · {fmtFecha(pg.fecha)}</div>
+          <div style={{fontSize:"13px",color:"#3a423c",margin:"6px 0 10px"}}>Corresponde a: <b>{ws.map(semLbl).join(" y ")}</b></div>
+          <table style={{width:"100%",fontSize:"13px",borderCollapse:"collapse"}}><thead><tr style={{color:"#6c756f",textAlign:"left"}}><th style={{padding:"4px 0"}}>Semana</th><th style={{textAlign:"right"}}>Unid.</th><th style={{textAlign:"right"}}>Precio</th><th style={{textAlign:"right"}}>Subtotal</th></tr></thead>
+          <tbody>{ws.map(w=><tr key={w.id} style={{borderTop:"1px solid #e3ded1"}}><td style={{padding:"5px 0"}}>{semLbl(w)}</td><td style={{textAlign:"right"}}>{w.unidades||0}</td><td style={{textAlign:"right"}}>{fmtARS(ppu)}</td><td style={{textAlign:"right",fontWeight:600}}>{fmtARS((w.unidades||0)*ppu)}</td></tr>)}</tbody></table>
+          <div style={{borderTop:"2px solid #17493a",marginTop:"8px",paddingTop:"8px",display:"flex",justifyContent:"space-between",fontWeight:700}}><span>Total transferido ({pg.unidades} unid.)</span><span>{fmtARS(pg.monto)}</span></div>
+        </div>})}
+        <div id="shot-viandas" style={{width:"420px",padding:"20px",background:"#fff",fontFamily:"var(--g)",color:"#1c2621"}}>
+          <div style={{fontSize:"18px",fontWeight:700}}>Viandas · {MONTHS[month]} {year}</div>
+          <div style={{fontSize:"12px",color:"#6c756f",margin:"4px 0 10px"}}>Precio por unidad: {fmtARS(pu)}{vi.nota?` · ${vi.nota}`:""}</div>
+          <table style={{width:"100%",fontSize:"13px",borderCollapse:"collapse"}}><thead><tr style={{color:"#6c756f",textAlign:"left"}}><th style={{padding:"4px 0"}}>Semana</th><th style={{textAlign:"right"}}>Unid.</th><th style={{textAlign:"right"}}>Subtotal</th><th style={{textAlign:"center"}}>Estado</th></tr></thead>
+          <tbody>{ent.map(w=><tr key={w.id} style={{borderTop:"1px solid #e3ded1"}}><td style={{padding:"5px 0"}}>{semLbl(w)}</td><td style={{textAlign:"right"}}>{w.unidades||0}</td><td style={{textAlign:"right",fontWeight:600}}>{fmtARS((w.unidades||0)*pu)}</td><td style={{textAlign:"center",color:w.paid?"#15803d":"#b45309"}}>{w.paid?`Abonada ${ddmm(w.fecha)}`:"Pendiente"}</td></tr>)}</tbody></table>
+          <div style={{borderTop:"2px solid #17493a",marginTop:"8px",paddingTop:"8px",display:"flex",justifyContent:"space-between",fontWeight:700}}><span>Total ({viUnits} unid.)</span><span>{fmtARS(viTotal)}</span></div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",color:"#6c756f",marginTop:"4px"}}><span>Abonado / Pendiente</span><span>{fmtARS(viPagado)} / {fmtARS(viTotal-viPagado)}</span></div>
+        </div>
+      </div>
       </Card>;
     }
 
@@ -820,7 +871,7 @@ function App(){
         <input type="date" value={b.asOf||""} className="text-xs border border-slate-200 rounded-lg py-2 px-1 bg-slate-50 shrink-0 outline-none" onChange={e=>update(d=>{d.bankBalances[i].asOf=e.target.value;return d})}/>
         <button className="p-1 hover:bg-red-50 rounded-lg" onClick={()=>update(d=>{d.bankBalances=d.bankBalances.filter((_,j)=>j!==i);return d})}>{I.trash({className:"w-4 h-4 text-red-400"})}</button>
       </div>)}</div>
-      <button className="mt-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.bankBalances)d.bankBalances=[];d.bankBalances.push({id:uid(),name:"",amountARS:0,amountUSD:0,asOf:new Date().toISOString().slice(0,10),persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar cuenta</button>
+      <button className="mt-3 flex items-center gap-1 text-sm text-blue-600 font-medium" onClick={()=>update(d=>{if(!d.bankBalances)d.bankBalances=[];d.bankBalances.push({id:uid(),name:"",amountARS:0,amountUSD:0,asOf:hoyLocal(),persist:true});return d})}>{I.plus({className:"w-4 h-4"})} Agregar cuenta</button>
       <div className="bg-slate-50 rounded-lg p-3 text-xs mt-3 flex justify-between flex-wrap gap-2"><div><span className="text-slate-500">Total ARS: </span><span className="font-bold">{fmtARS(tARS)}</span></div><div><span className="text-slate-500">Total USD: </span><span className="font-bold">{fmtUSD(tUSD)}</span></div></div></Card>;}
 
     default: return null;
