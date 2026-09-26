@@ -501,7 +501,7 @@ function App(){
         const autoTotalD=autosD.reduce((s,m)=>s+m.monto,0);
         const manualesD=t.manuales||[];
         const manualTotalD=manualesD.reduce((s,m)=>s+(m.monto||0),0);
-        const cuotasArrD=cuotasPorTarjeta[(t.last4||"").trim()]||[];
+        const cuotasArrD=(cuotasPorTarjeta[(t.last4||"").trim()]||[]).filter(c=>(c.cuota_actual||0)<(c.cuota_total||0));
         const cuotaMesD=cuotasArrD.reduce((s,c)=>s+(c.monto||0),0);
         const totalD=autoTotalD+manualTotalD+cuotaMesD;
         const limiteD=t.limite||0;
@@ -523,9 +523,10 @@ function App(){
       rowsD.forEach(t=>{
         (autoMovs[(t.last4||"").trim()]||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
         (t.manuales||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
+                (cuotasPorTarjeta[(t.last4||"").trim()]||[]).filter(c=>(c.cuota_actual||0)<(c.cuota_total||0)).forEach(c=>feedD.push({fecha:`${pk}-01`,desc:`${c.detalle} · cuota ${(c.cuota_actual||0)+1}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
       });
       feedD.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-      const feedTopD=feedD.slice(0,12);
+      const feedTopD=feedD;
       return <Card key={key}>
         <div className="flex items-center gap-2 mb-4"><Grip section/><div className=" flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Panorama en tiempo real: tarjetas + egresos fijos/manuales"/></div></div>
 
