@@ -294,6 +294,7 @@ function App(){
   const[autoMovs,setAutoMovs]=useState({});
   const[autoUnmatched,setAutoUnmatched]=useState([]);
   const[cuentaMovs,setCuentaMovs]=useState([]);
+  const[feedSoloSinCat,setFeedSoloSinCat]=useState(false);
   const dolarRef=useRef(0);
   const[syncing,setSyncing]=useState(false);
   const[lastSync,setLastSync]=useState(null);
@@ -314,7 +315,7 @@ function App(){
         const inst=r.raw&&r.raw.installments?Number(r.raw.installments):null;
         const cuota=inst&&inst>1?`1/${inst}`:(inst===1?"Contado":"—");
         const esUSD=r.currency_id==="USD";const tc=dolarRef.current||0;
-        const mov={id:r.source_id,fecha:r.date_created,desc:(r.description||"(sin descripción)")+(esUSD?` (US$ ${Number(r.amount||0).toLocaleString("es-AR",{minimumFractionDigits:2})}${tc>0?"":" · sin TC"})`:""),monto:esUSD?Number(r.amount||0)*tc:Number(r.amount||0),cuota,categoria:r.categoria||"",titular:titularDe(r)};
+        const mov={id:r.source_id,fecha:r.source==="captura_bbva"?(r.date_created||"").slice(0,10):r.date_created,desc:(r.description||"(sin descripción)")+(esUSD?` (US$ ${Number(r.amount||0).toLocaleString("es-AR",{minimumFractionDigits:2})}${tc>0?"":" · sin TC"})`:""),monto:esUSD?Number(r.amount||0)*tc:Number(r.amount||0),cuota,categoria:r.categoria||"",titular:titularDe(r)};
         const l4=(r.card_last4||"").trim();
         if(l4){if(!byCard[l4])byCard[l4]=[];byCard[l4].push(mov)}else unmatched.push(mov);
       });
@@ -585,13 +586,14 @@ function App(){
       const netoD=totalInc-totalGeneralD;
       const feedD=[];
       rowsD.forEach(t=>{
-        (autoMovs[(t.last4||"").trim()]||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
+        (autoMovs[(t.last4||"").trim()]||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre,titular:m.titular,categoria:m.categoria,auto:true}));
         (t.manuales||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
                  (cuotasPorTarjeta[(t.last4||"").trim()]||[]).forEach(c=>feedD.push({fecha:c.fecha||`${pk}-01`,desc:`${c.detalle} · cuota ${c.cuota_actual}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
       });
-      transfD.forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:m.cuenta}));
+      transfD.forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:m.cuenta,titular:m.titular,categoria:m.categoria,auto:true}));
       feedD.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-      const feedTopD=feedD;
+      const feedSinCatD=feedD.filter(m=>m.auto&&!m.categoria);
+      const feedTopD=feedSoloSinCat?feedSinCatD:feedD;
       return <Card key={key}>
         <div className="flex items-center gap-2 mb-4"><Grip section/><div className=" flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Panorama en tiempo real: tarjetas + transferencias + egresos fijos/manuales"/></div></div>
 
@@ -660,10 +662,16 @@ function App(){
           </div>}
         </div>
 
-        <label className="text-xs font-medium text-slate-500 mb-2 block">Últimos movimientos</label>
-        <div className="max-h-64 overflow-y-auto space-y-1">
-          {feedTopD.length===0&&<div className="text-xs text-slate-400">Sin movimientos todavía este mes.</div>}
-          {feedTopD.map((m,i)=><div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 last:border-0"><span className="text-slate-400 shrink-0 w-28">{(m.fecha||"").length>10?new Date(m.fecha).toLocaleString("es-AR",{timeZone:"America/Argentina/Buenos_Aires",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}):(m.fecha||"").slice(0,10).split("-").reverse().join("/")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span><span className="text-slate-400 shrink-0 hidden sm:inline">{m.tarjeta}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+          <label className="text-xs font-medium text-slate-500">Últimos movimientos · {feedD.length}</label>
+          <div className="flex items-center gap-1 text-xs">
+            <button onClick={()=>setFeedSoloSinCat(false)} className={`px-2.5 py-1 rounded-lg ${!feedSoloSinCat?"bg-slate-700 text-white":"bg-slate-100 text-slate-600"}`}>Todos</button>
+            <button onClick={()=>setFeedSoloSinCat(true)} className={`px-2.5 py-1 rounded-lg ${feedSoloSinCat?"bg-amber-500 text-white":"bg-amber-50 text-amber-700"}`}>Sin categorizar · {feedSinCatD.length} · {fmtARS(feedSinCatD.reduce((s,m)=>s+m.monto,0))}</button>
+          </div>
+        </div>
+        <div className="max-h-96 overflow-y-auto space-y-1">
+          {feedTopD.length===0&&<div className="text-xs text-slate-400">{feedSoloSinCat?"Nada sin categorizar. 👌":"Sin movimientos todavía este mes."}</div>}
+          {feedTopD.map((m,i)=><div key={i} className={`flex items-center gap-2 text-xs py-1 border-b border-slate-100 last:border-0 ${m.auto&&!m.categoria?"bg-amber-50/60":""}`}><span className="text-slate-400 shrink-0 w-28">{(m.fecha||"").length>10?new Date(m.fecha).toLocaleString("es-AR",{timeZone:"America/Argentina/Buenos_Aires",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}):(m.fecha||"").slice(0,10).split("-").reverse().join("/")}</span><span className="flex-1 truncate text-slate-600">{m.desc}</span>{m.auto&&<span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded ${m.categoria?"bg-slate-100 text-slate-500":"bg-amber-100 text-amber-700"}`}>{m.categoria?(CAT_LBL[m.categoria]||m.categoria.replace(/_/g," ")):"sin categoría"}</span>}<span className="text-slate-400 shrink-0 hidden sm:inline">{m.tarjeta}{m.titular&&m.titular!=="Sin asignar"&&!(m.tarjeta||"").includes(m.titular)?` (${m.titular})`:""}</span><span className="font-medium text-slate-700 shrink-0">{fmtARS(m.monto)}</span></div>)}
         </div>
       </Card>;
     }
