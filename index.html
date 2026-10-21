@@ -561,7 +561,7 @@ function App(){
       const totalGeneralD=totalMesD+transfTotalD+totalExpC+viTotal+clAll;
       const movsD=[...rowsD.flatMap(t=>autoMovs[(t.last4||"").trim()]||[]),...transfD];
       const otrosD=rowsD.reduce((s,r)=>s+r.manualTotalD+r.cuotaMesD,0);
-      const CAT_LBL={fijo_esencial:"Fijo esencial",suscripciones:"Suscripciones",super_hogar:"Súper / hogar",variable_evitable:"Delivery / gustitos",hormiga:"Hormiga",salud:"Salud",mascotas:"Mascotas",auto_transporte:"Auto / transporte",educacion:"Educación",vacaciones:"Vacaciones",puntual:"Puntual",negocio:"Negocio",__sin:"Sin categorizar",__otros:"Cuotas y cargas manuales"};
+      const CAT_LBL={fijo_esencial:"Fijo esencial",suscripciones:"Suscripciones",super_hogar:"Súper / hogar",variable_evitable:"Delivery / gustitos",hormiga:"Hormiga",salud:"Salud",mascotas:"Mascotas",auto_transporte:"Auto / transporte",educacion:"Educación",deporte:"Deporte",vacaciones:"Vacaciones",puntual:"Puntual",negocio:"Negocio",__sin:"Sin categorizar",__otros:"Cuotas y cargas manuales"};
       const porCatD={};movsD.forEach(m=>{const k=m.categoria||"__sin";porCatD[k]=(porCatD[k]||0)+m.monto});if(otrosD>0)porCatD.__otros=otrosD;
       const catListD=Object.entries(porCatD).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
       const catMaxD=catListD.length?catListD[0][1]:0;
