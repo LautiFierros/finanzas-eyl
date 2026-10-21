@@ -293,6 +293,8 @@ function App(){
 
   const[autoMovs,setAutoMovs]=useState({});
   const[autoUnmatched,setAutoUnmatched]=useState([]);
+  const[cuentaMovs,setCuentaMovs]=useState([]);
+  const dolarRef=useRef(0);
   const[syncing,setSyncing]=useState(false);
   const[lastSync,setLastSync]=useState(null);
   const loadAutoMovs=useCallback(async()=>{
@@ -301,18 +303,21 @@ function App(){
       const start=`${pk}-01`;
       const endD=new Date(yy,mm,1);
       const end=`${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-01`;
-      const{data:rowsQ,error}=await supabase.from("consumos_personales").select("source_id,date_created,description,amount,card_last4,status,payment_method_id,raw").eq("asignacion","pareja").gte("date_created",start).lt("date_created",end).order("date_created",{ascending:false});
+      const{data:rowsQ,error}=await supabase.from("consumos_personales").select("source,source_id,date_created,description,amount,currency_id,categoria,card_last4,status,payment_method_id,raw").eq("asignacion","pareja").gte("date_created",start).lt("date_created",end).order("date_created",{ascending:false});
       if(error)throw error;
-      const byCard={};const unmatched=[];
+      const byCard={};const unmatched=[];const cuentas=[];
+      const CUENTAS={personal_pay:"Personal Pay Lauti",naranja_x:"NX Eve"};
       (rowsQ||[]).forEach(r=>{
         if((r.status||"approved")!=="approved")return;
+        if(CUENTAS[r.source]){cuentas.push({id:r.source_id,fecha:(r.date_created||"").slice(0,10),desc:r.description||"(sin descripción)",monto:Number(r.amount||0),cuenta:CUENTAS[r.source],categoria:r.categoria||"",tipo:(r.raw&&r.raw.tipo)||""});return}
         const inst=r.raw&&r.raw.installments?Number(r.raw.installments):null;
         const cuota=inst&&inst>1?`1/${inst}`:(inst===1?"Contado":"—");
-        const mov={id:r.source_id,fecha:r.date_created,desc:r.description||"(sin descripción)",monto:Number(r.amount||0),cuota};
+        const esUSD=r.currency_id==="USD";const tc=dolarRef.current||0;
+        const mov={id:r.source_id,fecha:r.date_created,desc:(r.description||"(sin descripción)")+(esUSD?` (US$ ${Number(r.amount||0).toLocaleString("es-AR",{minimumFractionDigits:2})}${tc>0?"":" · sin TC"})`:""),monto:esUSD?Number(r.amount||0)*tc:Number(r.amount||0),cuota};
         const l4=(r.card_last4||"").trim();
         if(l4){if(!byCard[l4])byCard[l4]=[];byCard[l4].push(mov)}else unmatched.push(mov);
       });
-      setAutoMovs(byCard);setAutoUnmatched(unmatched);
+      setAutoMovs(byCard);setAutoUnmatched(unmatched);setCuentaMovs(cuentas);
     }catch(e){console.error("Error cargando consumos automáticos:",e)}
   },[pk]);
   useEffect(()=>{loadAutoMovs()},[loadAutoMovs]);
@@ -415,7 +420,7 @@ function App(){
   const uploadCardFile=async(cIdx,file)=>{setUploading(true);try{const path=`${pk}/${file.name}`;await supabase.storage.from(BUCKET).upload(path,file,{upsert:true});await loadFiles();update(d=>{const c=d.cards[cIdx];if(!c.files)c.files=[];if(!c.files.includes(file.name))c.files.push(file.name);return d});if(file.type==="application/pdf"){setCS(prev=>({...prev,[file.name]:{status:"processing"}}));supabase.functions.invoke("convert-statement",{body:{bucket:BUCKET,path,period:pk}}).catch(err=>console.error("Conversión falló:",err))}}catch(e){alert("Error al subir: "+e.message)}setUploading(false)};
   const deleteCardFile=async(cIdx,name)=>{await supabase.storage.from(BUCKET).remove([`${pk}/${name}`]);await loadFiles();update(d=>{const c=d.cards[cIdx];c.files=(c.files||[]).filter(x=>x!==name);return d})};
 
-  const dr=data.dollarRate||0;const toUSD=a=>dr>0?a/dr:0;
+  const dr=data.dollarRate||0;const toUSD=a=>dr>0?a/dr:0;dolarRef.current=dr;
   const totalInc=data.incomes.reduce((s,i)=>s+(i.amount||0),0);
   const incEve=data.incomes.filter(i=>i.person==="Evelyn").reduce((s,i)=>s+(i.amount||0),0);
   const incLau=data.incomes.filter(i=>i.person==="Lautaro").reduce((s,i)=>s+(i.amount||0),0);
@@ -432,7 +437,8 @@ function App(){
   const viUnits=(vi.entregas||[]).reduce((s,w)=>s+(w.unidades||0),0);
   const viTotal=viUnits*(vi.precioUnit||0);
   const viPagado=(vi.entregas||[]).filter(w=>w.paid).reduce((s,w)=>s+(w.unidades||0)*(vi.precioUnit||0),0);
-  const totalEgr=totalExpC+totalCards+clAll+viTotal+cashBudget;
+  const transfTotal=cuentaMovs.reduce((a,m)=>a+m.monto,0);
+  const totalEgr=totalExpC+totalCards+clAll+viTotal+cashBudget+transfTotal;
   const [shotMsg,setShotMsg]=useState("");
   const [viSel,setViSel]=useState({});
   const [viFechaPago,setViFechaPago]=useState(hoyLocal());
@@ -546,7 +552,11 @@ function App(){
         return{...t,autoTotalD,manualTotalD,cuotaMesD,totalD,limiteD,pctD};
       });
       const totalMesD=rowsD.reduce((s,r)=>s+r.totalD,0);
-      const totalGeneralD=totalMesD+totalExpC+viTotal;
+      const transfD=cuentaMovs.slice().sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+      const transfTotalD=transfD.reduce((s,m)=>s+m.monto,0);
+      const transfPorCuentaD={};transfD.forEach(m=>{transfPorCuentaD[m.cuenta]=(transfPorCuentaD[m.cuenta]||0)+m.monto});
+      const transfSinCatD=transfD.filter(m=>!m.categoria);
+      const totalGeneralD=totalMesD+transfTotalD+totalExpC+viTotal;
       const limiteTotalD=rowsD.reduce((s,r)=>s+(r.limiteD||0),0);
       const nowD=new Date();
       const esMesActual=pk===`${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,"0")}`;
@@ -554,7 +564,7 @@ function App(){
       const diaHoy=esMesActual?nowD.getDate():diasEnMes;
       // La proyección solo extrapola el consumo con tarjeta (varía día a día); los egresos fijos/manuales
       // (alquiler, transferencias, etc.) ya son un monto conocido del mes, se suman tal cual.
-      const proyeccionD=(esMesActual&&diaHoy>0)?(totalMesD/diaHoy)*diasEnMes+totalExpC+viTotal:null;
+      const proyeccionD=(esMesActual&&diaHoy>0)?((totalMesD+transfTotalD)/diaHoy)*diasEnMes+totalExpC+viTotal:null;
       const netoD=totalInc-totalGeneralD;
       const feedD=[];
       rowsD.forEach(t=>{
@@ -562,10 +572,11 @@ function App(){
         (t.manuales||[]).forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:t.nombre}));
                  (cuotasPorTarjeta[(t.last4||"").trim()]||[]).forEach(c=>feedD.push({fecha:c.fecha||`${pk}-01`,desc:`${c.detalle} · cuota ${c.cuota_actual}/${c.cuota_total}`,monto:c.monto||0,tarjeta:t.nombre}));
       });
+      transfD.forEach(m=>feedD.push({fecha:m.fecha,desc:m.desc,monto:m.monto,tarjeta:m.cuenta}));
       feedD.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
       const feedTopD=feedD;
       return <Card key={key}>
-        <div className="flex items-center gap-2 mb-4"><Grip section/><div className=" flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Panorama en tiempo real: tarjetas + egresos fijos/manuales"/></div></div>
+        <div className="flex items-center gap-2 mb-4"><Grip section/><div className=" flex-1"><ST icon={I.trendUp} title="Dashboard Consumos" sub="Panorama en tiempo real: tarjetas + transferencias + egresos fijos/manuales"/></div></div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Total general del mes</div><div className="text-lg font-bold text-slate-800">{fmtARS(totalGeneralD)}</div></div>
@@ -575,6 +586,7 @@ function App(){
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
           <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Consumo con tarjeta</div><div className="text-base font-semibold text-slate-700">{fmtARS(totalMesD)}</div></div>
+          <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Transferencias y QR</div><div className="text-base font-semibold text-slate-700">{fmtARS(transfTotalD)}</div></div>
           <div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Egresos fijos/manuales</div><div className="text-base font-semibold text-slate-700">{fmtARS(totalExpC+viTotal)}</div></div>
           {limiteTotalD>0&&<div className="bg-slate-50 rounded-xl p-3"><div className="text-xs text-slate-500 mb-1">Límite total tarjetas</div><div className="text-base font-semibold text-slate-700">{fmtARS(limiteTotalD)}</div></div>}
           {limiteTotalD>0&&<div className={`rounded-xl p-3 ${(limiteTotalD-totalMesD)<0?"bg-red-50":"bg-slate-50"}`}><div className="text-xs text-slate-500 mb-1">Disponible tarjetas</div><div className="text-base font-semibold text-slate-700">{fmtARS(limiteTotalD-totalMesD)}</div></div>}
@@ -590,6 +602,27 @@ function App(){
           </div>;
         })}</div>
 
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-medium text-slate-500">Consumos vía transferencias y QR · {transfD.length} mov.</label>
+            <span className="text-xs text-slate-500">{Object.entries(transfPorCuentaD).map(([c,v])=>`${c}: ${fmtARS(v)}`).join(" · ")}</span>
+          </div>
+          {transfSinCatD.length>0&&<div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 mb-2">{transfSinCatD.length} sin categorizar · {fmtARS(transfSinCatD.reduce((s,m)=>s+m.monto,0))}</div>}
+          {transfD.length===0&&<div className="text-xs text-slate-400">Sin transferencias cargadas este mes (Personal Pay / NX).</div>}
+          {transfD.length>0&&<div className="max-h-72 overflow-y-auto border border-slate-100 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr><th className="text-left font-medium px-2 py-1.5">Fecha</th><th className="text-left font-medium px-2 py-1.5">A quién</th><th className="text-left font-medium px-2 py-1.5 hidden sm:table-cell">Cuenta</th><th className="text-left font-medium px-2 py-1.5">Categoría</th><th className="text-right font-medium px-2 py-1.5">Monto</th></tr></thead>
+              <tbody>{transfD.map(m=><tr key={m.id} className="border-t border-slate-100">
+                <td className="px-2 py-1 text-slate-400 whitespace-nowrap">{(m.fecha||"").split("-").reverse().join("/")}</td>
+                <td className="px-2 py-1 text-slate-700">{m.desc}{m.tipo==="qr"&&<span className="text-slate-400"> · QR</span>}</td>
+                <td className="px-2 py-1 text-slate-500 hidden sm:table-cell whitespace-nowrap">{m.cuenta}</td>
+                <td className="px-2 py-1">{m.categoria?<span className="text-slate-600">{m.categoria.replace(/_/g," ")}</span>:<span className="text-amber-600">sin categoría</span>}</td>
+                <td className="px-2 py-1 text-right font-medium text-slate-700 whitespace-nowrap">{fmtARS(m.monto)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+        </div>
+
         <label className="text-xs font-medium text-slate-500 mb-2 block">Últimos movimientos</label>
         <div className="max-h-64 overflow-y-auto space-y-1">
           {feedTopD.length===0&&<div className="text-xs text-slate-400">Sin movimientos todavía este mes.</div>}
@@ -603,7 +636,7 @@ function App(){
       const tot={pareja:0,coraz:0,excluido:0,pendiente:0};const cnt={pareja:0,coraz:0,excluido:0,pendiente:0};
       asigRows.forEach(r=>{const k=r.asignacion||"pendiente";tot[k]+=Number(r.amount||0);cnt[k]++});
       const lista=asigVerTodos?asigRows:asigRows.filter(r=>r.asignacion==="pendiente");
-      const srcLbl=r=>r.source==="mercado_pago"?(r.card_last4?`MP · tarj. ${r.card_last4}`:"MP · saldo"):(r.source==="notificacion_galicia"?`Galicia${r.card_last4?" · "+r.card_last4:""}`:r.source);
+      const srcLbl=r=>r.source==="mercado_pago"?(r.card_last4?`MP · tarj. ${r.card_last4}`:"MP · saldo"):r.source==="notificacion_galicia"?`Galicia${r.card_last4?" · "+r.card_last4:""}`:r.source==="notificacion_bbva"?`BBVA${r.card_last4?" · "+r.card_last4:""}`:r.source==="personal_pay"?"Personal Pay":r.source==="naranja_x"?"NX Eve":r.source;
       return <Card key={key}>
         <div className="flex items-center gap-2"><Grip section/><div className=" flex-1"><ST icon={I.zap} title="Asignar Movimientos" sub="Todo lo que sale: vos decidís si es de la pareja, de CORAZ o se excluye"/></div></div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
@@ -921,7 +954,7 @@ function App(){
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
           {l:"Ingresos",v:fmtARS(totalInc),s:fmtUSD(toUSD(totalInc)),Ic:I.trendUp,ci:"text-emerald-500",cv:"text-emerald-700"},
-          {l:"Egresos Reales",v:fmtARS(totalEgr),s:`Fijos ${fmtARS(totalExpC)} · Tarjetas ${fmtARS(totalCards)} · Limp. ${fmtARS(clAll)} · Viandas ${fmtARS(viTotal)} · Efec. ${fmtARS(cashBudget)}`,Ic:I.trendDown,ci:"text-red-500",cv:"text-red-700"},
+          {l:"Egresos Reales",v:fmtARS(totalEgr),s:`Fijos ${fmtARS(totalExpC)} · Tarjetas ${fmtARS(totalCards)} · Limp. ${fmtARS(clAll)} · Viandas ${fmtARS(viTotal)} · Transf. ${fmtARS(transfTotal)} · Efec. ${fmtARS(cashBudget)}`,Ic:I.trendDown,ci:"text-red-500",cv:"text-red-700"},
           {l:"Saldo Neto",v:fmtARS(saldo),s:fmtUSD(toUSD(saldo)),Ic:I.wallet,ci:saldo>=0?"text-blue-500":"text-red-500",cv:saldo>=0?"text-blue-700":"text-red-700"},
         ].map(({l,v,s,Ic,ci,cv})=>{const g=l==="Saldo Neto";return <Card key={l} className="!p-4 origin-card" style={g?{background:"#e6efe8",borderColor:"#cfe3d8"}:undefined}><div className="flex items-start justify-between mb-1"><span className="text-xs" style={{color:g?"#4f7a6c":"var(--sub)"}}>{l}</span>{g?Ic({className:"w-4 h-4",style:{color:"#17493a"}}):Ic({className:`w-4 h-4 ${ci}`})}</div><p className={`font-semibold leading-tight ${g?"":cv}`} style={{fontSize:"22px",letterSpacing:"-.02em",color:g?(saldo>=0?"#0f3527":"#a3311f"):undefined}}>{v}</p><p className="text-xs mt-1" style={{color:g?"#5f8a7b":"var(--sub)"}}>{s}</p></Card>;})}
       </div>
@@ -936,7 +969,7 @@ function App(){
         <ST icon={I.users} title="Resumen del Mes" sub={`${MONTHS[month]} ${year}`}/>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-3">
           <div><p className="text-xs text-slate-400">Ingresos Totales</p><p className="text-lg font-bold text-emerald-400">{fmtARS(totalInc)}</p><p className="text-xs text-slate-500">{fmtUSD(toUSD(totalInc))}</p></div>
-          <div><p className="text-xs text-slate-400">Egresos Reales</p><p className="text-lg font-bold text-red-400">{fmtARS(totalEgr)}</p><p className="text-xs text-slate-500 mt-0.5">Fijos: {fmtARS(totalExpC)} · Tarjetas: {fmtARS(totalCards)} · Limp: {fmtARS(clAll)} · Viandas: {fmtARS(viTotal)} · Efec: {fmtARS(cashBudget)}</p></div>
+          <div><p className="text-xs text-slate-400">Egresos Reales</p><p className="text-lg font-bold text-red-400">{fmtARS(totalEgr)}</p><p className="text-xs text-slate-500 mt-0.5">Fijos: {fmtARS(totalExpC)} · Tarjetas: {fmtARS(totalCards)} · Limp: {fmtARS(clAll)} · Viandas: {fmtARS(viTotal)} · Transf: {fmtARS(transfTotal)} · Efec: {fmtARS(cashBudget)}</p></div>
           <div><p className="text-xs text-slate-400">Saldo Neto</p><p className={`text-lg font-bold ${saldo>=0?"text-blue-400":"text-red-400"}`}>{fmtARS(saldo)}</p><p className="text-xs text-slate-500">{fmtUSD(toUSD(saldo))}</p></div>
         </div>
       </Card>
