@@ -146,7 +146,7 @@ const fmtFecha=(f)=>f?String(f).slice(0,10).split("-").reverse().join("/"):"—"
 
 const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const LOCAL_KEY="gestion_financiera_ev_lau_cache";
-const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosDashboard","asignacion","consumosTiempoReal","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","viandas","savings","bankBalances","notes","files"];
+const DEFAULT_SECTIONS=["dollarRate","incomes","expenses","cashBudget","cards","consumosDashboard","asignacion","consumosTiempoReal","serviciosPeajes","reimbursements","allowanceEvelyn","allowanceLautaro","cleaning","viandas","savings","bankBalances","notes","files"];
 const DEFAULT_TARJETAS_RT=()=>[
   {id:uid(),nombre:"Visa Galicia (monotributo)",last4:"",limite:0,manuales:[],manualUSD:0},
   {id:uid(),nombre:"Mastercard Galicia Platinum",last4:"",limite:0,manuales:[],manualUSD:0},
@@ -360,6 +360,27 @@ function App(){
     }catch(e){console.error("Error cargando cuotas:",e)}
   },[]);
   useEffect(()=>{loadCuotas()},[loadCuotas]);
+  // Servicios y peajes (nov-2026): datos que dejan sync-servicios y sync-telepase (lun/jue). Solo lectura.
+  const[svc,setSvc]=useState({estado:[],peajesMes:[],impagas:[],sinBonif:[],facturas:[],consumos:[],cargado:false});
+  const loadSvc=useCallback(async()=>{
+    try{
+      const[yy,mm]=pk.split("-").map(Number);
+      const start=`${pk}-01`;const endD=new Date(yy,mm,1);const end=`${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-01`;
+      const desde6=new Date(yy,mm-7,1).toISOString().slice(0,10);
+      const[a,b,c,d,e,f]=await Promise.all([
+        supabase.from("v_servicios_estado").select("*"),
+        supabase.from("v_peajes_mes").select("*").eq("mes",pk),
+        supabase.from("facturas_peaje").select("comprobante,concesionario,venc1,venc2,monto2,estado").neq("estado","pagado"),
+        supabase.from("pasadas_peaje").select("fecha,hora,patente,tarifa").eq("estacion","0004").eq("sentido","CABA").eq("bonificacion",0).gte("hora","16:00").lte("hora","20:00").gte("fecha",start).lt("fecha",end),
+        supabase.from("facturas_servicio").select("servicio,cuenta,numero,venc1,monto").gte("venc1",start).lt("venc1",end),
+        supabase.from("consumos_servicio").select("servicio,fecha,consumo,unidad").gte("fecha",desde6).order("fecha",{ascending:true}),
+      ]);
+      const err=[a,b,c,d,e,f].find(x=>x.error);if(err)throw err.error;
+      const sinBonif=(d.data||[]).filter(r=>{const w=new Date(r.fecha+"T12:00:00").getDay();return w>=1&&w<=5});
+      setSvc({estado:a.data||[],peajesMes:b.data||[],impagas:c.data||[],sinBonif,facturas:e.data||[],consumos:f.data||[],cargado:true});
+    }catch(err){console.error("Error cargando servicios:",err);setSvc(s=>({...s,cargado:true,error:String(err.message||err)}))}
+  },[pk]);
+  useEffect(()=>{loadSvc()},[loadSvc]);
   const runSyncNow=async()=>{
     setSyncing(true);
     try{
@@ -458,7 +479,7 @@ function App(){
   const toggleRT=id=>setERT(p=>({...p,[id]:!p[id]}));
   const isNew=!allData[pk];
 
-  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",consumosDashboard:"Dashboard Consumos",asignacion:"Asignar Movimientos",consumosTiempoReal:"Consumos en Tiempo Real",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",viandas:"Viandas",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
+  const SECTION_LABELS={dollarRate:"Tipo de Cambio",incomes:"Ingresos",expenses:"Egresos",cashBudget:"Efectivo no registrado",cards:"Tarjetas de Crédito",consumosDashboard:"Dashboard Consumos",asignacion:"Asignar Movimientos",consumosTiempoReal:"Consumos en Tiempo Real",serviciosPeajes:"Servicios y peajes",reimbursements:"Reintegros",allowanceEvelyn:"Mensualidad Evelyn",allowanceLautaro:"Mensualidad Lautaro",cleaning:"Cuenta Limpieza",viandas:"Viandas",savings:"Ahorros",bankBalances:"Conciliación bancaria",notes:"Anotaciones",files:"Archivos del Mes"};
 
   const renderSection=(key)=>{
     switch(key){
@@ -928,6 +949,40 @@ function App(){
       <div className="flex items-center gap-3 flex-wrap"><NI value={(data.cashBudget||{}).amountARS||0} className="max-w-xs" onChange={v=>update(d=>{if(!d.cashBudget)d.cashBudget={amountARS:0,note:""};d.cashBudget.amountARS=v;return d})}/><TI value={(data.cashBudget||{}).note||""} placeholder="Nota (opcional)" className="flex-1 min-w-[150px]" onChange={v=>update(d=>{if(!d.cashBudget)d.cashBudget={amountARS:0,note:""};d.cashBudget.note=v;return d})}/></div>
       <p className="text-xs text-slate-400 mt-2">Se suma a los Egresos Reales del mes.</p></Card>;
 
+    case "serviciosPeajes": {
+      const NOM={edesur:"Luz · Edesur",aysa:"Agua · AySA",metrogas:"Gas · Metrogas",arqui:"Tasa SUM · ARQUI"};
+      const hoyS=new Date().toISOString().slice(0,10);
+      const fd=s=>s?`${s.slice(8,10)}/${s.slice(5,7)}`:"—";
+      const hace=ts=>{const h=Math.round((Date.now()-new Date(ts).getTime())/3600000);return h<24?`hace ${h} h`:`hace ${Math.round(h/24)} d`};
+      const fila=s=>{
+        const it=s.items||{};const venc=Number(s.total_propio)||0;let det="",estado="ok";
+        if(s.servicio==="edesur"){det=`Saldo ${fmtARS(s.total)}`+(venc>0?` · vencido ${fmtARS(venc)}`:"");if(venc>0)estado="mal"}
+        if(s.servicio==="aysa"){const enProc=(it.cupones||[]).filter(c=>/proceso/i.test(c.estado||"")).reduce((a,c)=>a+c.monto,0);det=`Vigente ${fmtARS(it.saldo_vigente||0)}`+(enProc?` · pago en proceso ${fmtARS(enProc)}`:"")+(venc>0?` · vencido ${fmtARS(venc)}`:"");if(venc>0)estado="mal";else if(enProc)estado="ojo"}
+        if(s.servicio==="metrogas"){const fa=it.factura_actual||{};det=(venc>0?`Deuda ${fmtARS(venc)}`:"Sin deuda")+(fa.venc?` · últ. factura ${fmtARS(fa.monto||0)} (vto ${fd(fa.venc)})`:"")+(it.debito_automatico?"":" · sin débito automático");if(venc>0)estado="mal";else if(!it.debito_automatico)estado="ojo"}
+        if(s.servicio==="arqui"){const cs=Array.isArray(it)?it:[];const prop=cs.filter(c=>!c.excluida);const excl=cs.filter(c=>c.excluida);det=(prop.length?prop.map(c=>`${c.periodo.slice(0,7)}: ${fmtARS(c.saldo)}`).join(" · "):"Sin deuda propia")+(excl.length?` · ${excl.length} cuota(s) que no son nuestras`:"");if(prop.some(c=>c.vencimiento&&c.vencimiento<hoyS))estado="mal"}
+        const col=estado==="mal"?"bg-red-50 border-red-200":estado==="ojo"?"bg-amber-50 border-amber-200":"bg-emerald-50 border-emerald-200";
+        const dot=estado==="mal"?"🔴":estado==="ojo"?"🟡":"🟢";
+        return <div key={s.servicio+s.cuenta} className={`rounded-lg border px-3 py-2 ${col}`}><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium text-slate-800">{dot} {NOM[s.servicio]||s.servicio}</span><span className="text-xs text-slate-400">{hace(s.consultado_at)}</span></div><p className="text-xs text-slate-600 mt-0.5">{det}</p></div>;
+      };
+      const totPeajes=svc.peajesMes.reduce((a,r)=>a+Number(r.total||0),0);
+      const trabajo=svc.peajesMes.reduce((a,r)=>a+Number(r.trabajo||0),0);
+      const AUTOS={HPA724:"Meriva",BZI513:"Clio",TUV836:"Renault 18"};
+      const porServ={};svc.consumos.forEach(c=>{(porServ[c.servicio]=porServ[c.servicio]||[]).push(c)});
+      return <Card key={key}><div className="flex items-center gap-2"><Grip section/><div className=" flex-1"><ST icon={I.zap} title="Servicios y peajes" sub="Se actualiza solo lunes y jueves (TelePASE, Edesur, AySA, Metrogas, ARQUI). Solo lectura: los montos ya están dentro de las tarjetas o de Egresos"/></div><button className="p-1.5 hover:bg-slate-100 rounded-lg" title="Recargar" onClick={loadSvc}>{I.refresh({className:"w-4 h-4 text-slate-500"})}</button></div>
+        {!svc.cargado?<p className="text-sm text-slate-400">Cargando…</p>:svc.error?<p className="text-sm text-red-500">No pude leer los datos: {svc.error}</p>:<div className="space-y-4">
+          <div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Estado de cuenta (última consulta)</p><div className="grid sm:grid-cols-2 gap-2">{svc.estado.map(fila)}</div></div>
+          {svc.facturas.length>0&&<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Facturas con vencimiento en {pk}</p><div className="space-y-1">{svc.facturas.sort((a,b)=>(a.venc1||"").localeCompare(b.venc1||"")).map(f=><div key={f.servicio+f.numero} className="flex justify-between text-sm"><span className="text-slate-700">{NOM[f.servicio]||f.servicio} <span className="text-xs text-slate-400">vto {fd(f.venc1)}</span></span><span className="font-medium">{fmtARS(f.monto)}</span></div>)}</div></div>}
+          <div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Peajes de {pk}</p>
+            {svc.peajesMes.length===0?<p className="text-sm text-slate-400">Sin pasadas registradas este mes (TelePASE publica las pasadas con unos días de demora).</p>:<div className="space-y-1">
+              {svc.peajesMes.map(r=><div key={r.patente} className="flex justify-between text-sm"><span className="text-slate-700">{AUTOS[r.patente]||r.patente} <span className="text-xs text-slate-400">{r.pasadas} pasadas · bonificado {fmtARS(r.bonificado)}</span></span><span className="font-medium">{fmtARS(r.total)}</span></div>)}
+              <div className="flex justify-between text-sm border-t border-slate-100 pt-1"><span className="text-slate-500">Total · de eso, ida/vuelta al trabajo</span><span className="font-semibold">{fmtARS(totPeajes)} · {fmtARS(trabajo)}</span></div></div>}
+            {svc.sinBonif.length>0&&<p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 mt-2">⚠️ {svc.sinBonif.length} vuelta(s) sin tramo corto ({svc.sinBonif.map(r=>fd(r.fecha)).join(", ")}): ~{fmtARS(svc.sinBonif.reduce((a,r)=>a+r.tarifa/2,0))} a reclamar a AUBASA.</p>}
+            {svc.impagas.map(p=><p key={p.comprobante} className="text-xs text-red-700 bg-red-50 rounded-lg px-2 py-1 mt-2">🔴 Factura {p.concesionario} {p.comprobante} impaga: {fmtARS(p.monto2)} (vto {fd(p.venc1)}{p.venc2?` / ${fd(p.venc2)}`:""}).</p>)}
+          </div>
+          {Object.keys(porServ).length>0&&<div><p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Consumo últimos meses</p><div className="space-y-1">{Object.entries(porServ).map(([s,arr])=><div key={s} className="text-xs text-slate-600"><span className="font-medium text-slate-700">{NOM[s]||s}:</span> {arr.slice(-6).map(c=>`${fd(c.fecha)} ${Math.round(c.consumo)} ${c.unidad}`).join(" · ")}</div>)}</div></div>}
+        </div>}
+      </Card>;
+    }
     case "reimbursements": {const rs=data.reimbursements||[];const pend=rs.filter(r=>r.status!=="received").reduce((s,r)=>s+(r.amount||0),0);const rec=rs.filter(r=>r.status==="received").reduce((s,r)=>s+(r.amount||0),0);return <Card key={key}><div className="flex items-center gap-2"><Grip section/><div className=" flex-1"><ST icon={I.refresh} title="Reintegros" sub="Vet, Telépase, devoluciones — plata a recuperar"/></div></div>
       <div className="flex gap-2 mb-3 flex-wrap"><Badge color="amber">Pendiente: {fmtARS(pend)}</Badge><Badge color="green">Cobrado: {fmtARS(rec)}</Badge></div>
       <div className="space-y-2">{rs.map((r,i)=><div key={r.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
